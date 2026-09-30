@@ -48,24 +48,42 @@ What follows:
 The game defines far fewer than 32 options, so in practice only the "no pre-combined mask" rule
 and the dropped-out-of-range case matter.
 
+**What each option value actually does is in
+[gui-options.md](gui-options.md)** — the effects are in the executable even though the names
+are not.
+
 ## There are two option fields, and only one is cleared
 
-`GuiOptionsAdd` and `GuiOptionsRemove` operate on the frame-wide field at `gui+0x0c`;
-`GuiOptionsAddForNextWidget` operates on the pending field at `gui+0x10`/`+0x14`.
-`GuiOptionsClear` zeroes `+0x0c` and **not** the pending field. No Lua-callable function writes
-the pending field other than `GuiOptionsAddForNextWidget` — it is consumed and cleared by the
-per-widget commit, which also resets it to `1` (option bit 0, the default alignment) rather
-than `0`.
+The option set is 64 bits wide and lives in **four** 32-bit fields on the `gui` object — two for
+the frame-wide set and two for the pending "next widget" set:
 
-The practical consequence: an abandoned "next widget" option can still apply to a later widget,
-because nothing else clears it.
+| function | operation | low half | high half |
+|----------|-----------|-----------|-----------|
+| `GuiOptionsAdd` | `field \|= 1 << (v & 31)` | `+0x08` | `+0x0c` |
+| `GuiOptionsRemove` | `field &= ~(1 << (v & 31))` | `+0x08` | `+0x0c` |
+| `GuiOptionsAddForNextWidget` | `field \|= 1 << (v & 31)` | `+0x10` | `+0x14` |
+| `GuiOptionsClear` | `high half = 0` | — | `+0x0c` |
 
-| function | operation | field |
-|----------|-----------|-------|
-| `GuiOptionsAdd` | `field \|= 1 << (v & 31)` | `+0x0c` frame-wide |
-| `GuiOptionsRemove` | `field &= ~(1 << (v & 31))` | `+0x0c` frame-wide |
-| `GuiOptionsAddForNextWidget` | `field \|= 1 << (v & 31)` | `+0x10` + `+0x14` pending |
-| `GuiOptionsClear` | `field = 0` | `+0x0c` only |
+A widget receives the two halves as two separate arguments, and the Lua wrapper merges the
+pending and frame-wide sets before passing them:
+
+```
+low  = (gui + 0x10) | (gui + 0x08)
+high = (gui + 0x14) | (gui + 0x0c)
+```
+
+Two consequences:
+
+- **A single `GUI_OPTION` value can never set one bit in each half.** You combine options by
+  calling the function once per value.
+- **`GuiOptionsClear` only zeroes the high half** (`+0x0c`). It leaves the frame-wide low half
+  alone, so clearing does not actually clear every frame-wide option. And nothing Lua-callable
+  writes the pending pair except `GuiOptionsAddForNextWidget` — it is consumed and reset by the
+  per-widget commit, which resets it to `1` (option bit 0, the default alignment) rather than
+  `0`.
+
+The practical consequence of the pending half: an abandoned "next widget" option can still
+apply to a later widget, because nothing else clears it.
 
 ## Getting the actual values
 

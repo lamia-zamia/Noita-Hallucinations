@@ -3,6 +3,10 @@
 How Noita turns `GuiLayoutBeginVertical` and a pile of widget calls into coordinates. If you
 have ever had a layout behave in a way you did not expect, the reason is here.
 
+For the behaviour in general — the frame sequence, coordinates, widget identity — read
+[gui-cookbook.md](gui-cookbook.md) first. This page is the detailed engine reference behind
+it, including the exact field offsets of a layout frame.
+
 Addresses are for one Steam build and will move on update.
 
 ## One vector, two record sizes

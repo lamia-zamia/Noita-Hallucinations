@@ -18,9 +18,12 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
 | [docs/how-the-api-works.md](docs/how-the-api-works.md) | The rules that apply to all 375 functions. **Read this first** — it changes how you write mod code. |
 | [docs/api-reference.md](docs/api-reference.md) | All 375 functions: enforced arity, per-argument coercion, substituted defaults, return arity, runtime messages, shared globals. |
 | [docs/family-notes.md](docs/family-notes.md) | Behaviour that holds across a family — `Entity*`, `Component*`, `Gui*`, `Physics*`, `Mod*` and the rest. |
-| [docs/gui-internals.md](docs/gui-internals.md) | The GUI object model, frame lifecycle, the widget-id system and the id-keyed state map, and a map of all 41 `Gui*` functions to what they call. |
+| [docs/gui-options.md](docs/gui-options.md) | **What every `GUI_OPTION` value does**, as bit positions and effects — and which ones are no-ops. |
+| [docs/gui-defaults.md](docs/gui-defaults.md) | The hardcoded values: which sprites, font and sounds the GUI uses, every default argument, and the numeric constants. |
+| [docs/gui-cookbook.md](docs/gui-cookbook.md) | Reimplementing the GUI: the coordinate maths, the per-frame sequence, and the formulas, worked through. |
+| [docs/gui-internals.md](docs/gui-internals.md) | The GUI object model, the widget-id system and the id-keyed state map — the data structures behind the behaviour. |
 | [docs/gui-layout.md](docs/gui-layout.md) | The layout engine: the layout stack, the cursor algorithm, layers, scroll containers, auto-boxes and tooltips. |
-| [docs/gui-bugs.md](docs/gui-bugs.md) | The bugs and sharp edges, with evidence strength marked — wrong values, memory-safety holes, silent no-ops, uninitialised data, leaks. |
+| [docs/gui-bugs.md](docs/gui-bugs.md) | The bugs and sharp edges, with evidence strength marked — wrong values, memory-safety holes, silent no-ops, leaks. |
 | [docs/enums.md](docs/enums.md) | Enum and constant tables, and why their values are not in the executable. |
 | [docs/undocumented-functions.md](docs/undocumented-functions.md) | The eight functions the game never documents, what they actually return, and the hardcoded date tables inside one of them. |
 | [docs/api-registration.md](docs/api-registration.md) | How the API is installed, the thirteen other registrars, and the documentation generator the game ships. |

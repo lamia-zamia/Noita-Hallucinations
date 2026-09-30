@@ -1,12 +1,20 @@
 # Noita GUI internals
 
-The `Gui*` API is a thin Lua binding over a small immediate-mode GUI. Understanding it
-explains most of the ways GUI mods interfere with each other: a persistent per-widget state
-map keyed by a hashed id, a layout stack that is never unwound automatically, and a set of
-frame-scoped fields that some functions reset and others do not.
+The data structures behind the `Gui*` API. If you want to know **what the GUI does**, read
+[gui-cookbook.md](gui-cookbook.md) and [gui-options.md](gui-options.md) first — those are
+behaviour and formulas, and this page is the layout of the state underneath them.
 
-- [gui-layout.md](gui-layout.md) — how positions are actually computed, and the container
-  functions.
+This page is for when you need the offsets: reimplementing the GUI against the original's
+structures, debugging a crash, or writing a Lua mod that has to reason about shared state.
+
+Understanding it explains most of the ways GUI mods interfere with each other: a persistent
+per-widget state map keyed by a hashed id, a layout stack that is never unwound automatically,
+and a set of frame-scoped fields that some functions reset and others do not.
+
+- [gui-cookbook.md](gui-cookbook.md) — the behaviour and the coordinate maths, no offsets.
+- [gui-defaults.md](gui-defaults.md) — the hardcoded sprites, fonts, sounds, defaults and constants.
+- [gui-options.md](gui-options.md) — what each `GUI_OPTION` value does.
+- [gui-layout.md](gui-layout.md) — the layout engine and container functions in detail.
 - [gui-bugs.md](gui-bugs.md) — the bugs and sharp edges, with severity.
 
 Addresses are for one Steam build of the 32-bit `noita.exe` and will move on update. Function
@@ -48,8 +56,8 @@ validated.
 |--------|------|----------|
 | `+0x00` | 4 | vtable pointer (`ImGuiContext`) |
 | `+0x04` | 1 | a flag set from the `GuiCreate` argument |
-| `+0x08` | 4 | set to 1 at the start of every frame |
-| `+0x0c` | 4 | frame option set, low 32 bits |
+| `+0x08` | 4 | frame option set, **low 32 bits** |
+| `+0x0c` | 4 | frame option set, **high 32 bits** |
 | `+0x10` | 4 | pending (next-widget) option set, low 32 bits |
 | `+0x14` | 4 | pending option set, high 32 bits |
 | `+0x18` | 4 | **never written by the frame reset** |
@@ -60,10 +68,13 @@ validated.
 | `+0x38` | 80 | the previous-widget record (20 dwords) |
 | `+0x88` | 4 | pointer to the 712-byte state object |
 
-Options are a **64-bit set stored as two 32-bit halves**: `+0x0c` is the frame-wide set used by
-`GuiOptionsAdd`/`Remove`/`Clear`, and `+0x10`/`+0x14` are the pending set used by
-`GuiOptionsAddForNextWidget`. See [enums.md](enums.md#gui_option-values-are-bit-positions-not-bit-masks)
-for how values map onto bits, including what happens to values that are too large.
+Options are a **64-bit set stored as two 32-bit halves**, in two places: `+0x08`/`+0x0c` is the
+frame-wide set used by `GuiOptionsAdd`/`Remove`/`Clear`, and `+0x10`/`+0x14` is the pending set
+used by `GuiOptionsAddForNextWidget`. A widget is handed
+`(pending_low | frame_low, pending_high | frame_high)` as two separate arguments, which is why a
+single option value can never affect both halves. See
+[enums.md](enums.md#there-are-two-option-fields-and-only-one-is-cleared) for the per-function
+field table and what `GuiOptionsClear` actually clears.
 
 ### The 712-byte state object
 
@@ -127,9 +138,10 @@ records at `+0x224` are set by `FUN_008a9f10` with a rectangle of `(1, 0, 1, 1, 
 
 | state | reset by `GuiStartFrame`? |
 |-------|---------------------------|
-| `gui+0x0c` frame options | yes, to 0 |
+| `gui+0x08` frame options, low half | yes, to 0 |
+| `gui+0x0c` frame options, high half | yes, to 0 |
 | `gui+0x10` / `+0x14` pending options | yes — to 1 and 0, i.e. *option bit 0 on* |
-| `gui+0x1c`–`+0x28` colour | partly: alpha to 1.0f, the three colour channels are not |
+| `gui+0x1c`–`+0x28` colour | fully: white with alpha 1.0 |
 | `gui+0x2c` frame z | yes, to 0 |
 | `gui+0x30` / `+0x34` pending z and its flag | yes |
 | `gui+0x38`–`+0x84` previous-widget record | yes, fully zeroed |
