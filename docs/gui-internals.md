@@ -93,9 +93,22 @@ for writing mods:
 | `+0x2b0` | **UI scale**, 1.0f |
 | `+0x2b4` | second font size, 1.0f |
 
-Two constructor gaps are worth knowing if you are reimplementing this: the ranges
-`+0xd8`–`+0x137`, `+0x170`–`+0x17f` and `+0x184`–`+0x19f` are not written by the state
-constructor, so they rely on the allocator or on a base constructor.
+The state object is constructed by `FUN_00817db0`, which first calls a base constructor
+`FUN_0065c7b0`. That base is a `GameMouseListener` subclass, and it is worth knowing about for
+two reasons:
+
+- **It does not close the layout gaps.** It writes only `+0x00`–`+0x34` (a vtable, two flags,
+  a back-pointer, and a `std::string` at `+0x10`). The three ranges
+  `+0xd8`–`+0x137`, `+0x170`–`+0x17f` and `+0x184`–`+0x197` are written by **no** constructor in
+  the chain, so they start as whatever the allocator returned. If you are reimplementing this,
+  those are your three uninitialised holes.
+- **It registers the state object as a game mouse listener.** The base constructor adds `this`
+  to the global `GameMouse` listener list, which is where the mouse fields at `+0x1e4`–`+0x1f0`
+  come from: the engine dispatches input to registered listeners, the GUI does not poll.
+
+A third constructor, `FUN_0081d580`, initialises the sub-object at `+0x23c`: a `std::string`
+followed by four RGBA values (the built-in palette) and three scalars. The clip/transform
+records at `+0x224` are set by `FUN_008a9f10` with a rectangle of `(1, 0, 1, 1, 1)`.
 
 ## Frame lifecycle
 
@@ -203,17 +216,47 @@ object.
 
 ## The draw pipeline
 
-`FUN_0081bbe0` builds a 100-byte draw command and appends it to a **process-global** list,
-growing by a pointer at `DAT_01208554` with a capacity at `DAT_01208558`. There is no removal
-anywhere in the GUI code, and exhausting the capacity calls an abort path.
+The GUI is a **pure producer of draw commands**, and the pipeline around it is fully mapped.
 
-Text widgets emit their glyphs through this list. Nothing in the GUI subsystem touches
-Direct3D directly; the consumer of the list is elsewhere in the engine. Its whole body is
-guarded by `if (handle != 0)`, so a null resource handle produces no draw call and no error.
+`FUN_0081bbe0` builds a 100-byte draw command and appends it to a **process-global** three-
+pointer vector: `begin` at `0x01208550`, `end` at `0x01208554`, `capacity` at `0x01208558`.
+The command count is `(end - begin) / 100`. Growth is geometric (1.5x, via `FUN_00932e60` →
+`FUN_00948840`) and the abort path is unreachable in practice.
 
-Two things follow for anyone reimplementing this outside the game: the GUI is a pure
-producer of draw commands, and it holds a process-global list that must be drained by whoever
-consumes it.
+**The consumer is `FUN_008279c0`, and it is the only one.** One caller in the entire binary:
+`FUN_006b3b10`, a virtual method. It:
+
+1. hands the whole list to `FUN_0095f260` (the actual render submission), passing the command
+   count,
+2. walks the list itself in 100-byte strides, reading each command's first dword as a
+   render-resource pointer and testing `+0x48` on it before using it,
+3. **resets `end = begin` unconditionally at the end** — this is the drain.
+
+Because the walk is guarded by `if (handle != 0)`, a null resource handle produces no draw
+call and no error. `FUN_00efdee0` is the static destructor: it walks the list calling
+`FUN_0081dba0` per command, frees the buffer and zeroes all three pointers.
+
+Two things follow for anyone reimplementing this outside the game: the GUI is a pure producer
+of draw commands, and the list it produces is per-frame scratch that the renderer consumes and
+resets. It is device-independent in the sense that matters — nothing in the GUI subsystem
+touches Direct3D, and the command format is a flat 100-byte record.
+
+### The colour helper is a false-positive machine
+
+`FUN_0042b6e0` is worth calling out because it produces a **wrong reading** if taken at face
+value. The decompiler types it as taking a single float and reports it reading three
+uninitialised registers:
+
+```c
+*(undefined4 *)(this + 4)  = in_XMM1_Da;    /* looks uninitialised */
+*(undefined4 *)(this + 8)  = in_XMM2_Da;    /* looks uninitialised */
+*(undefined4 *)(this + 0xc)= in_XMM3_Da;    /* looks uninitialised */
+```
+
+It is an ordinary `__thiscall` four-float RGBA constructor — r/g/b in XMM1–XMM3, a on the
+stack — and all **174** call sites define all three registers. If you are reading the
+decompilation and see `in_XMM*_Da` in a colour helper, check the call sites before believing
+it. See [gui-bugs.md](gui-bugs.md).
 
 ## The 41 functions and what they actually call
 

@@ -22,6 +22,7 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
 | [docs/gui-layout.md](docs/gui-layout.md) | The layout engine: the layout stack, the cursor algorithm, layers, scroll containers, auto-boxes and tooltips. |
 | [docs/gui-bugs.md](docs/gui-bugs.md) | The bugs and sharp edges, with evidence strength marked — wrong values, memory-safety holes, silent no-ops, uninitialised data, leaks. |
 | [docs/enums.md](docs/enums.md) | Enum and constant tables, and why their values are not in the executable. |
+| [docs/undocumented-functions.md](docs/undocumented-functions.md) | The eight functions the game never documents, what they actually return, and the hardcoded date tables inside one of them. |
 | [docs/api-registration.md](docs/api-registration.md) | How the API is installed, the thirteen other registrars, and the documentation generator the game ships. |
 
 ## The short version
@@ -51,7 +52,9 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
   game data, not code, and cannot be recovered statically. [docs/enums.md](docs/enums.md)
   explains how to get their real values.
 - 8 of the 375 functions are undocumented even by the binary; they are listed explicitly in
-  the reference rather than omitted.
+  the reference, and [docs/undocumented-functions.md](docs/undocumented-functions.md) says what
+  they actually do — three of the eight are dead or misleading, and one contains hardcoded
+  date tables that stop matching in 2040.
 - The signatures in this reference are quoted from the game, so any typos in them are the
   game's. Where the enforced arity disagrees with the signature, both are shown.
 

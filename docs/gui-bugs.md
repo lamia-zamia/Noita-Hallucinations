@@ -6,6 +6,9 @@ evidence is:
 - **verified** — read directly out of the decompilation while writing this page.
 - **reported** — found by a systematic sweep of the 207-function GUI call graph; specific, with
   a named function, but not individually re-checked.
+- **disproved** — a claim that was published here and has since been checked and found wrong.
+  The heading keeps the original wording so you can recognise it if you read an older copy; the
+  body says what is actually true.
 
 Addresses are build-specific.
 
@@ -173,22 +176,41 @@ Bytes 5 and 18–23 are also left untouched by the constructor. Four to eleven b
 practice the fields modders read are the ones that do get written, which is why this has never
 been noticed.
 
-### The per-widget colour's RGB channels are never initialised
-**reported** — the colour is built by a helper that takes only an alpha argument and reads the
-other three components from registers that no call site sets:
+### The per-widget colour's RGB channels are never initialised — *not a bug, a decompiler artefact*
+**disproved** — this was published here earlier as a possible uninitialised read. It is not one.
+
+`FUN_0042b6e0` builds a 20-byte RGBA value at `this`. The decompiler types it as taking a
+single float, because the four-float signature is not in the call graph it infers:
 
 ```c
-*(undefined4 *)(this + 4)  = in_XMM1_Da;    /* r — no initialiser at any call site */
-*(undefined4 *)(this + 8)  = in_XMM2_Da;    /* g */
-*(undefined4 *)(this + 0xc)= in_XMM3_Da;    /* b */
-*(undefined4 *)(this + 0x10)= param_1;       /* a — the only real argument */
+*(undefined4 *)(this + 0)   = 4;              /* a type tag, not a colour channel */
+*(undefined4 *)(this + 4)   = in_XMM1_Da;     /* r */
+*(undefined4 *)(this + 8)   = in_XMM2_Da;     /* g */
+*(undefined4 *)(this + 0xc) = in_XMM3_Da;     /* b */
+*(undefined4 *)(this + 0x10)= param_1;        /* a — the only stack argument */
 ```
 
-This affects the frame reset and the post-widget reset, so the "default" next-widget colour is
-whatever was in those registers. The intended value is plainly opaque white. Whether the
-machine actually sees white is not determinable from the decompilation — it is either an ABI
-artefact of the decompiler dropping three constant loads, or a real uninitialised read at seven
-call sites.
+The instructions are an ordinary `__thiscall` four-float constructor, `r`/`g`/`b` in XMM1–XMM3
+and `a` on the stack:
+
+```
+0042b6e9  XORPS XMM0,XMM0                  ; zero +0x04..+0x13 first
+0042b6ec  MOVDQU xmmword ptr [ECX + 0x4],XMM0
+0042b6f3  MOVSS XMM0,dword ptr [EBP + 0x8] ; a, from the stack
+0042b6f8  MOVSS dword ptr [ECX + 4],XMM1
+0042b6fd  MOVSS dword ptr [ECX + 8],XMM2
+0042b702  MOVSS dword ptr [ECX + 0xc],XMM3
+0042b707  MOVSS dword ptr [ECX + 0x10],XMM0
+```
+
+It has **174 call sites, and all 174 define XMM1, XMM2 and XMM3 before the call** — measured
+by walking back from each call to the previous control transfer and recording which argument
+registers are written. So the default next-widget colour is genuinely opaque white
+(`1.0, 1.0, 1.0, 1.0`), and `GuiColorSetForNextWidget` genuinely sets all four channels.
+
+Worth knowing if you reimplement this: the same prototype-inference trap produces
+`in_XMM1_Da`-style names all over the decompilation, and they are **not** evidence of an
+uninitialised read. Check the call sites before believing one.
 
 ### Multi-line text ORs in an unassigned local
 **reported** — `GuiText` declares a byte, never assigns it, and ORs it into the record's
@@ -209,8 +231,34 @@ permanently, for the lifetime of that `Gui` object.
 `GuiIdPush(entity_id)` or a frame counter as the id grows this without bound.
 
 ### The draw-command list only grows
-**reported** — the glyph/text draw builder appends 100-byte commands to a process-global list
-with a capacity check that calls an abort path when full. No removal is visible in the GUI code.
+**disproved** — this was published here earlier as a leak. It is not a leak.
+
+The glyph/text draw builder `FUN_0081bbe0` appends 100-byte commands to a process-global
+three-pointer vector (`begin`/`end`/`capacity`) and has no removal, which is what made it look
+unbounded. But the list **is** drained, every frame, by `FUN_008279c0` — and that function has
+exactly **one** caller in the whole binary, `FUN_006b3b10`, a virtual method. It is the only
+thing that reads the list.
+
+```c
+/* FUN_008279c0, at the top: snapshot the list */
+FUN_0095f260(begin, end, (end - begin) / 100, ...);   /* count is the command count */
+...
+for (cmd = begin; cmd != end; cmd += 100) { ... }     /* 100 bytes per command */
+
+/* at the bottom, unconditionally: the drain */
+end = begin;
+```
+
+The capacity check on the append path is a normal geometric grow, not an abort:
+`FUN_00932e60` grows by 1.5x via `FUN_00948840` when the list is full, and the
+`_Xlength_error` path is only reachable at 700 million commands.
+
+`FUN_00efdee0` is the static destructor: it walks the list calling `FUN_0081dba0` per command,
+then frees the buffer and zeroes all three pointers.
+
+So the corrected statement is: the draw list is per-frame scratch space, allocated once and
+reused, and it does not grow without bound. The one real cost is that the buffer's high-water
+mark is never shrunk.
 
 ### Layout and layer stacks are unbounded
 **verified** — there is no depth cap on the layout stack. A loop that begins layouts without

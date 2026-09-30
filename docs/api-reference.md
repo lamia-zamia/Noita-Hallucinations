@@ -103,7 +103,7 @@ Nothing in these rejects a short argument list; a missing argument reads as zero
 
 ### Functions with no usage string
 
-The binary documents these not at all: no signature string is embedded, so there is nothing to cross-check the arity against and `out.lua` has no source for them either.
+The binary documents these not at all: no signature string is embedded, so there is nothing to cross-check the arity against. What they actually do is in [undocumented-functions.md](undocumented-functions.md) — three of the eight are dead or misleading in a release build.
 
 | function | arity check | returns |
 |----------|-------------|---------|

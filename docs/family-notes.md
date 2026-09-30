@@ -36,9 +36,11 @@ accessors (`GameGetFrameNum`, `GameGetCameraPos`, `GameIsDailyRun`, …) all sha
 `lua_gettop() < 0` guard, which never fires; 21 of the API's 52 argument-less functions are
 in this family, and calling them with stray arguments is harmless.
 
-`GameGetDateAndTimeLocal` (8 values) and `GameGetDateAndTimeUTC` (6) are the widest calls in
-the family, and both are two of only eight functions in the API with neither an arity guard
-nor an embedded usage string.
+`GameGetDateAndTimeLocal` (8 values) and `GameGetDateAndTimeUTC` (6) are the widest calls in the
+family, and both are two of only eight functions in the API with neither an arity guard
+nor an embedded usage string. The local variant's two extra values are booleans compared
+against hardcoded per-year date tables that stop matching in 2040 — see
+[undocumented-functions.md](undocumented-functions.md).
 
 `GameSetPostFxTextureParameter` carries the longest embedded documentation string in the
 binary; the caution in it about one texture per unique `parameter_name` is a real memory
@@ -135,7 +137,10 @@ API. Three (`StreamingGetIsConnected`, `StreamingSetCustomPhaseDurations`,
 **neither**, putting them among only eight functions in the API that the binary documents not
 at all. `StreamingGetConnectedChannelName`, `StreamingGetRandomViewerName` and
 `StreamingGetVotingCycleDurationFrames` all return a single string with no way to
-distinguish "no stream" from "empty name".
+distinguish "no stream" from "empty name". All four construct the streaming manager lazily and
+dereference it without a null check; `StreamingForceNewVoting` is additionally gated on a flag
+with no `else` branch, so it does nothing at all when no stream is connected. Details in
+[undocumented-functions.md](undocumented-functions.md).
 
 ### Input
 
@@ -143,7 +148,10 @@ Twelve functions wrapping the input state, all marked *"Debugish function … do
 on state. E.g. player could be in menus."* in their own documentation. The key codes they
 expect come from `data/scripts/debug/keycodes.lua`; the binary does not carry the table, so
 the mapping cannot be recovered from the executable alone. `InputGetMousePosOnScreen` is the
-one member with neither an arity guard nor a usage string.
+one member with neither an arity guard nor a usage string, and it is also the one that does
+not return what a modder would expect: **unscaled screen pixels, not GUI coordinates**, with
+no null check on the renderer it reads from. See
+[undocumented-functions.md](undocumented-functions.md).
 
 ### Randomness
 
@@ -175,8 +183,11 @@ error and adds nothing.
 
 Six functions. Five are ordinary guarded calls; `Debug_SaveTestPlayer` has neither an arity
 guard nor a usage string — one of only eight functions in the API the binary does not
-document at all. `EntitySave` sits in the same position from the other side: it *has* a
-usage string but no guard, and its own documentation notes it works only in dev builds.
+document at all — and in a release build it is a **17-instruction stub that does nothing**.
+`EntitySave` sits in the same position from the other side: it *has* a usage string but no
+guard, and its whole body logs that string to the error log without saving anything. Its own
+documentation's note that it "works only in dev builds" is the entire implementation. Both are
+covered in [undocumented-functions.md](undocumented-functions.md).
 
 ## Reading a per-function entry
 
