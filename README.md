@@ -24,6 +24,19 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
 | [docs/gui-internals.md](docs/gui-internals.md) | The GUI object model, the widget-id system and the id-keyed state map — the data structures behind the behaviour. |
 | [docs/gui-layout.md](docs/gui-layout.md) | The layout engine: the layout stack, the cursor algorithm, layers, scroll containers, auto-boxes and tooltips. |
 | [docs/gui-bugs.md](docs/gui-bugs.md) | The bugs and sharp edges, with evidence strength marked — wrong values, memory-safety holes, silent no-ops, leaks. |
+
+### The game's own interface
+
+The pages above are about the GUI *API* — what a mod can draw with. These are about the interface
+the game draws for itself, recovered from the executable.
+
+| page | what is in it |
+|------|---------------|
+| [docs/game-ui.md](docs/game-ui.md) | **Where the game's UI lives.** The four address bands, the four row widgets every menu is made of, how each screen was identified without symbols, and the 40 UI tunables in `magic_numbers.xml`. |
+| [docs/ui-screens.md](docs/ui-screens.md) | **Screen by screen.** The HUD bars and their formulas, the wand inventory, the perk row, the main menu, world select, progress, game over and the replay editor — plus the bugs that are in them. |
+| [docs/ui-settings.md](docs/ui-settings.md) | **The options screen and the config file.** All ~60 options with their label, config key, struct offset and range; the `config.xml` format; the 30 key bindings and their defaults. |
+| [docs/ui-modding.md](docs/ui-modding.md) | **What you can actually do to it.** What is open, what is closed, and what mods in the wild manage — with an approach table and a robustness rating. |
+
 | [docs/enums.md](docs/enums.md) | Enum and constant tables, and why their values are not in the executable. |
 | [docs/undocumented-functions.md](docs/undocumented-functions.md) | The eight functions the game never documents, what they actually return, and the hardcoded date tables inside one of them. |
 | [docs/api-registration.md](docs/api-registration.md) | How the API is installed, the thirteen other registrars, and the documentation generator the game ships. |
@@ -45,6 +58,10 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
   the next frame. Several `*End` functions will read out of bounds rather than complain.
 - **There is no hidden API.** Thirteen other functions call `lua_setfield`, but all of them
   install onto engine objects rather than the global environment.
+- **The game's own UI is the same API you have.** It is C++ calling the same widgets with
+  pre-baked positions, not a privileged renderer. It is also **entirely closed** to mods: there
+  is no way to read a widget's rectangle, add a settings tab, or move anything vanilla.
+  [docs/ui-modding.md](docs/ui-modding.md) has the open/closed breakdown.
 
 ## Scope and caveats
 
@@ -58,6 +75,11 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
   the reference, and [docs/undocumented-functions.md](docs/undocumented-functions.md) says what
   they actually do — three of the eight are dead or misleading, and one contains hardcoded
   date tables that stop matching in 2040.
+- The UI pages are recovered from **string references and sprite paths**, because the screens
+  have no symbols. Every screen's attribution rests on at least two independent signals, but the
+  function that draws the wand stat panel timed out the decompiler and its layout arithmetic is
+  not recovered. Individual claims are marked with their evidence strength where it matters;
+  [docs/ui-screens.md](docs/ui-screens.md) ends with what is *not* known.
 - The signatures in this reference are quoted from the game, so any typos in them are the
   game's. Where the enforced arity disagrees with the signature, both are shown.
 
