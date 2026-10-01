@@ -49,17 +49,25 @@ Every mod gets a settings page, and a custom UI function gets the game's own `gu
 ```lua
 ModSettingsUpdate("my_mod.category", "my_mod.setting_name", "My setting")
 ModSettingsGuiCount(1)
-function ModSettingsGui(gui, im_id, in_main_menu)
+function ModSettingsGui(gui, in_main_menu)
     GuiLayoutBeginHorizontal(gui, im_id)
     GuiText(gui, 0, 0, "hello")
     GuiLayoutEnd(gui)
 end
 ```
 
-This is the sanctioned UI surface and the only one where the game passes you a real `gui`. Note
-the third argument: `in_main_menu` tells you whether you are being drawn in the front-end menu
-or the in-game pause menu, because those are separate screens and the game uses the same hook
-for both.
+This is the sanctioned UI surface and the only one where the game passes you a real `gui`. The game
+passes exactly **two** arguments: the `gui` object and `in_main_menu`. Note that `in_main_menu`
+tells you whether you are being drawn in the front-end menu or the in-game pause menu, because
+those are separate screens and the game uses the same hook for both.
+
+Because that `gui` is the *options screen's own object*, you can draw a full-screen panel
+directly onto it from inside `ModSettingsGui` and get correct compositing with the rest of the
+screen. You still cannot read any vanilla widget's geometry from it - the previous-widget record
+is only written by Lua wrappers - and you cannot move or re-layout the screen's own rows. The
+generic settings renderer that draws your rows is a shipped Lua file,
+`data/scripts/lib/mod_settings.lua`, which a mod can append to or replace. Both are covered in
+[ui-modding-2.md](ui-modding-2.md).
 
 ### Draw your own overlay
 
@@ -79,28 +87,50 @@ tooltips, scroll containers, auto-boxes, layers, animations.
 
 **But there is no scissor rectangle**, so clipping is a hack: open a transparent
 `GuiBeginScrollContainer` and the engine will clip subsequent widgets to it. Real mods do this
-and call it what it is. Same trick for blocking input — an invisible 50×50 scroll container
-under the cursor with the always-clickable option.
+and call it what it is.
+
+**Blocking input on your own `Gui` works, and the mechanism is specific.** Draw a `GuiButton`
+covering the full screen as the *first* thing you draw in the frame; it claims the mouse and
+every later widget on that object sees the claim and refuses hover. Three details matter:
+
+- The claim must come from an **enabled** button. The button builder returns a disabled/invisible
+  flag, and a widget with that flag set skips claiming the mouse entirely
+  (`out/decomp-gui/008245d0.c:160`) even though it is still hit-tested.
+- A `GuiBeginScrollContainer` does **not** claim the mouse. It never touches the claim byte at
+  all (`0x0081f870`, zero references) - it is a clip and scroll region, nothing more. The
+  "invisible scroll container blocks input" recipe does not work as such; use a button.
+- The claim is cleared only by that object's own `GuiStartFrame`, so it lasts the whole frame and
+  you cannot release it early.
+
+**All of this is confined to your own `Gui` object.** The claim byte lives on the object, so it
+cannot protect you from a vanilla menu drawn on a different one, and nothing in the API consumes
+a click outright. Drawing a menu over the pause menu therefore leaks clicks to whatever is
+underneath; the fix is to draw a screen rather than an overlay.
+[ui-modding-2.md](ui-modding-2.md) has the details and the three workable designs.
 
 ### Rewrite the game's text, fonts and tunables as data
 
 All three are plain data files and all three are writable.
 
-- **`data/translations/common.csv`** — every string in the game. Later duplicate keys win, so
-  **appending** your own rows overrides the game's. This is how you relabel menus, items,
-  status effects and death screens wholesale. A mod that wants to silence one message appends
-  one empty row; that is the most surgical UI change in existence.
-- **`data/translations/<lang>.xml`** — the only discovered layout knob for the native wand
-  panel: `ui_action_info_offset2`, `ui_wand_info_offset1`, `ui_wand_info_offset2` are pixel
-  offsets, and they are **per language file**, so a fix for one language does not apply to
-  others.
-- **`data/fonts/font_pixel.xml`** — parse it, rewrite the colour channels, and write a new font
-  into your mod's vfs. You cannot restyle the vanilla font in place usefully, but you can ship
-  recoloured copies.
-- **`magic_numbers.xml`** — the UI's pixel constants, via `ModMagicNumbersFileAdd`. The stat
-  bar origins, spacing, health-bar pitch, low-HP threshold, inventory icon size, game-over panel
-  percentages and the main-menu background scroll are all here. This is the closest thing to a
-  supported way to re-lay-out the game's own UI.
+- **`data/translations/common.csv`** - the game's string table, loaded at startup from this
+  exact path (`FUN_0084a700`). The lookup (`FUN_0084ab80`) is a **linear scan that returns the
+  first matching row**, so on duplicate keys the *earlier* row wins, not the later one. Relabelling
+  therefore means shadowing the vanilla row, not appending after it - and because a mod file at
+  the same path replaces the base file in the vfs, the practical recipe is to copy the vanilla
+  `common.csv` into your mod and edit the rows you want. A mod wanting to silence one message
+  sets that row's value to an empty string. This is the most surgical UI change in existence.
+
+  Note the key format. GUI labels go through `FUN_0084b3a0`, which checks for a leading `$`
+  (`0x24`): a `$`-prefixed label is looked up in this table, and **a label with no `$` is replaced
+  with an empty string**. So `GuiButton(gui, id, x, y, "Play", ...)` renders nothing, and
+  `GuiOptionsAdd`-style option names are not the same namespace as card names (`action_*`), which
+  are looked up elsewhere. Details in [ui-modding-2.md](ui-modding-2.md).
+
+Those are the *tunable* levers. The larger set — which components and files the UI reads at
+runtime, and therefore what a mod can replace outright — is in
+[ui-data-driven.md](ui-data-driven.md). In short the rule is: the vanilla UI is data-driven for
+its **content** (sprites, names, descriptions, values, item lists) and hardcoded for its
+**structure** (which rows exist, in what order, where).
 
 ### Patch vanilla Lua
 
@@ -137,6 +167,11 @@ local offset = 2 -- why, nolla
 
 This is the root difficulty and it is worth being blunt about: you cannot anchor to the vanilla
 HUD. You can only guess where it is and hope.
+
+The options screen is the one place you are handed a `gui` that is not yours, so it is the only
+place you can draw outside your own widget tree. It does not help with geometry: the HUD, the
+pause menu and the progress menu all draw widgets that never enter the previous-widget record. See
+[ui-modding-2.md](ui-modding-2.md).
 
 ### No world-to-screen projection
 

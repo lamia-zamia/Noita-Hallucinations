@@ -98,27 +98,33 @@ the global environment. Nothing is hiding. See
 
 ## Handles, ids, and other shared state
 
-Three things are process-global rather than per-mod, and are the cause of most cross-mod
-interference.
+Three things are worth knowing about cross-object state.
 
 **`gui` handles are validated, and a stale one is silent.** Every `Gui*` call runs the handle
-through a validator that returns `0` for a handle that is no longer live. The caller then does
-nothing — no log line. Using a `Gui` object after `GuiDestroy` it fails invisibly, so a
-destroyed-object bug looks exactly like a widget that stopped drawing.
+through a validator that returns `0` for a handle that is not in the registry of live `Gui`
+objects. The caller then does nothing — no log line. Using a `Gui` object after `GuiDestroy` it
+fails invisibly, so a destroyed-object bug looks exactly like a widget that stopped drawing. The
+validator has no vtable probe and no generation counter, so a stale handle is accepted if it
+happens to match a one-entry cache of the last valid handle.
 
 **Entity lookups are a linear scan.** Resolving an `entity_id` walks a vector of entity
 pointers comparing stored ids. Loops over many entities are therefore quadratic, and this is
-visible in the disassembly rather than inferred: 41 of the 54 `Entity*` functions reach the
-same scan. If you are iterating entities, prefer the bulk forms (`EntityGetInRadius`,
+visible in the disassembly rather than inferred: 41 of the 54 `Entity*` functions reach
+the same scan. If you are iterating entities, prefer the bulk forms (`EntityGetInRadius`,
 `EntityGetAllComponents`, `EntityGetAllChildren`) over repeated per-id calls.
 
-**The previous-widget block is global, not per-`gui`.** Exactly ten functions write
-`0x01154b98`–`0x01154ba8`, and `GuiGetPreviousWidgetInfo` reads it back. Two `Gui` objects, or
-two mods, drawing in the same frame clobber each other's results. The ten are
+**The previous-widget block is per-`gui`, at `gui+0x38`.** Exactly ten functions write it -
 `GuiBeginScrollContainer`, `GuiButton`, `GuiEndAutoBoxNinePiece`, `GuiImage`, `GuiImageButton`,
-`GuiImageNinePiece`, `GuiSlider`, `GuiText`, `GuiTextCentered` and `GuiTextInput` — note that
-the layout and scope functions are not among them, so a frame that only moves widgets leaves
-the previous frame's information in place.
+`GuiImageNinePiece`, `GuiSlider`, `GuiText`, `GuiTextCentered` and `GuiTextInput` - and
+`GuiGetPreviousWidgetInfo` reads it back. Two mods with their own `Gui` objects therefore do not
+interfere. Note that the layout and scope functions are not among the writers, so a frame that
+only moves widgets leaves the previous frame's information in place.
+
+**It only ever holds a Lua-drawn widget.** The commit is `FUN_007d97d0(gui, record)` and it has
+exactly 11 callers, every one of them a Lua wrapper in the `0x007d`-`0x007e` band. The game's own
+widgets are built by a different set of functions (`0x008245d0`, `0x00823580`, `0x00825cb0`, ...)
+which never call it. So passing the game's `gui` to `GuiGetPreviousWidgetInfo` returns the last
+widget *you* drew, not a vanilla one - see [ui-modding-2.md](ui-modding-2.md).
 
 ## Return values
 

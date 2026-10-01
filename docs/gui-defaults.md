@@ -178,8 +178,8 @@ The two constants that change visible output most:
 A few things the GUI does that you cannot reach or change from Lua, and that a reimplementation
 has to decide about explicitly:
 
-- **`GuiStartFrame` clears the previous-widget record into a process-global.** Nothing about it
-  is configurable.
+- **`GuiStartFrame` clears a process-global scratch widget record** that `GuiTooltip` reads. Nothing
+  about it is configurable.
 - **The frame draws the mouse and text cursors itself**, from the three cursor assets above.
   There is no API call for them.
 - **Scroll smoothing is always on.** The scroll container always passes the animation option, so

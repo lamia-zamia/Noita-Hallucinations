@@ -133,10 +133,10 @@ persists into the next frame and the next frame after that.
 the entire body. No log line, no return value, no error. This is the single most common reason
 "my GUI stopped working".
 
-### `GuiStartFrame` wipes global state even with a bad handle
-**reported** — the reset of the process-global previous-widget block happens outside the
-handle check, so a call with an invalid handle skips the real frame reset but still clears
-global state belonging to whatever mod was drawing.
+### `GuiStartFrame` wipes shared state even with a bad handle
+**reported** — the reset of the shared scratch widget record happens outside the handle check, so
+a call with an invalid handle skips the real frame reset but still clears the record
+`GuiTooltip` reads, wiping the tooltip state of whatever mod was drawing.
 
 ### Passing something that is not a `gui` handle
 **verified pattern** across the wrappers: they test `lua_type(L,1) == 2` and then
@@ -280,6 +280,19 @@ id-keyed map. Sharing an id at the same stack depth means writing to each other'
 **verified** — the first widget to claim the mouse sets a flag that suppresses the rest. With
 two mods drawing overlapping widgets, the second one cannot be hovered at all, and which one
 wins is draw order.
+
+**The claim is per-`gui`, not process-global.** The flag is the byte at `*(gui+0x88) + 0x1fd` —
+reached through a runtime pointer at all three write sites (`008245d0.c:189`, `00823580.c:288`,
+`00825cb0.c:251`) and all eleven read expressions (across nine functions), never as a fixed global. It is cleared only by that
+object's own `NewFrame` (`008187d0.c:1175`, the sole clear site). So two mods with their own
+`GuiCreate` objects never compete; sharing only happens when two mods are handed the *same*
+handle, or when a mod draws through the game's own `Gui`. See
+[ui-modding-2.md](ui-modding-2.md) for what this means for drawing a menu over a vanilla one.
+
+No `GUI_OPTION` bit bypasses it: the claim test is a top-level conjunct of the hit test in every
+widget builder, never in a disjunction with an option test. The one real bypass is not an option —
+`GuiButton` and `GuiTextInput` skip the claim test on the frame their widget-state entry is
+created, so a widget is briefly unhoverable the moment its entry first appears.
 
 ### Clicking requires the pointer to still be inside
 **reported** — a click is the mouse-down flag and a current hover test. There is no

@@ -51,8 +51,9 @@ concern, not boilerplate.
 41 functions. 40 of them validate the `gui` handle through `0x0078c030`; the exception is
 `GuiCreate`, which has no handle to validate. A stale handle is a **silent no-op**.
 
-Exactly **10** functions write the process-global previous-widget block
-`0x01154b98`–`0x01154ba8`:
+Exactly **10** functions commit a widget record to `gui+0x38` — the per-`gui` "previous widget"
+that `GuiGetPreviousWidgetInfo` returns — and write the shared scratch block
+`0x01154b98`–`0x01154ba8` that `GuiTooltip` reads:
 
     GuiBeginScrollContainer   GuiButton              GuiEndAutoBoxNinePiece
     GuiImage                  GuiImageButton         GuiImageNinePiece
@@ -121,6 +122,21 @@ signature admits `nil`; the rest always return a string, empty if the key is unk
 `AddFlagPersistent` is the clearest example in the API of the string-fallback trap: called
 with a non-string it logs `1 param wasn't a string, string was expected` and then searches
 the store for the key `"AddFlagPersistent( key:string ) -> bool_is_new"`.
+
+`GlobalsGetValue` / `GlobalsSetValue` are **not** a preferences API, despite the name. The store is
+a flat string→string map on the *WorldState entity* — the same one `GameGetWorldStateEntity()`
+returns — and it is saved into the run's `world_state.xml`. Three consequences worth knowing:
+
+- **It does not exist in the front-end.** Before a run exists there is no WorldState, so reads
+  return your default and writes do nothing. Main-menu code cannot use it.
+- **It is per-run, and reset by a new game.** It is where the game keeps its own progression
+  bookkeeping (`HOLY_MOUNTAIN_VISITS`, `GLOBAL_BOSS_KILL_COUNT`, `visited_biomes`,
+  `fungal_shift_iteration`, the perk and essence pickup counters).
+- **It holds no UI or screen state at all.** Actual user preferences live in a separate
+  `config.xml` structure with no Lua binding whatsoever.
+
+There is no way to enumerate it, keys are a flat unnamespaced namespace, and both functions are
+string-only. See [ui-modding-2.md](ui-modding-2.md).
 
 ### Persistent values
 

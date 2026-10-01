@@ -36,9 +36,15 @@ value does something. Treat the table below as "these bit positions have this ef
 Bits with a confirmed behavioural effect — **0, 2, 3, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17,
 19, 21, 22, 23, 24, 25, 29**, plus 30 and 31 which are sentinels rather than features.
 
-The gaps — **1, 4, 9, 18, 20, 26, 27, 28**, and everything from 32 upward: no test of the option
+The gaps — **4, 18, 20, 26, 27, 28**, and everything from 32 upward: no test of the option
 word was found anywhere in the GUI call graph. On the evidence in the executable these are
 no-ops.
+
+**Bit 9 was on this list and should not have been.** It is read in the widget-state lookup
+(`out/decomp-gui/0081b090.c:227`), where it gates a latch of the pending offset into the state
+entry when the frame counter has advanced — see the input table below. The game's own pause-menu
+buttons all set it. The census behind this list missed a consumer outside the widget builders;
+re-run it before trusting any of the remaining gaps.
 
 Bit 1 is the interesting one. `0x2` is tested in five places, but **none of them is a test of
 the option word**: they are frame bookkeeping, a mask read in the text function, and two tests
@@ -176,16 +182,33 @@ read them as a group.
 
 | value | effect |
 |-------|--------|
-| `2` (`0x4`) | **Interactive.** The widget takes part in hit-testing. Without it the widget is drawn and ignored. This is the bit that most visibly separates a widget that reacts to the mouse from one that does not. |
-| `3` (`0x8`) | **Full hit-test.** Must be set *together with* option `2` to take effect: the hit test becomes a strict rectangle containment test. The pair is `2 | 3`. |
+| `2` (`0x4`) | **Non-interactive.** Setting this bit takes the widget *out* of hit-testing: it is drawn but cannot be hovered or clicked. **The polarity is the opposite of what it looks like** — a *clear* bit 2 is what makes a widget interactive, which is why `GuiStartFrame` seeds the word with `1` and `GuiOptionsClear` restores `1`. The community enum mirror in `data/scripts/lib/utilities.lua:1011` names it `NonInteractive`, and that name is correct. |
+| `3` (`0x8`) | **Full hit-test.** Overrides bit 2: with `2 \| 3` set the widget is hit-tested anyway, and the test becomes strict rectangle containment. |
 | `8` (`0x100`) | **Click while held.** Lets the widget report a click when the mouse button is still down, rather than requiring a fresh press inside it. |
 | `19` (`0x80000`) | **Drag instead of click.** When the mouse goes down inside the widget, this records the press position into the widget-state entry instead of consuming it as a click, which is the first half of drag support. |
 | `6` (`0x40`) | **Override the computed position** with the coordinates passed to the widget, bypassing the animated/interpolated position the widget would otherwise use. |
+| `9` (`0x200`) | **Latch the state's offset field.** Not a no-op, despite appearing in the dead-gap list. Read in the widget-state lookup (`out/decomp-gui/0081b090.c:227`): when set, it copies the pending offset into the state entry if the frame counter has moved. The game's own pause-menu buttons all set it. |
 
-Note the ordering: the hit test is `interactive AND full_hit_test AND inside_rectangle AND no
-other_widget_claimed_the_mouse_this_frame`. The last term is the "one widget owns the mouse"
-rule — the first widget to claim it sets a frame flag and later widgets are not considered
-hovered, regardless of their options.
+The hit test, exactly as compiled (`out/decomp-gui/008245d0.c:150-151`):
+
+```
+hovered = state_entry_is_new
+      && !claimed_this_frame
+      && (bit2_clear || bit3_set)          <- note the polarity
+      && inside_rectangle
+```
+
+Note the ordering: the last term is the "one widget owns the mouse" rule — the first widget to
+claim it sets a frame flag and later widgets are not considered hovered, regardless of their
+options. That flag lives at `*(gui+0x88) + 0x1fd`, **per `gui` object**, and is cleared only by that
+object's own `GuiStartFrame`. Two `Gui` objects never compete; see [ui-modding-2.md](ui-modding-2.md).
+
+**And because the option words are just `gui+0x08`/`gui+0x0c` with no ownership check**, you can set
+them on a `gui` the *game* gave you — but only for widgets drawn **through the Lua API**. The
+builders take the option word as an argument (`008245d0.c:68-69`), and the only code that merges
+`gui+0x08`/`gui+0x10` into that argument is the Lua wrapper layer: all 20 merge sites are in the
+`0x007d`–`0x007e` band. The game passes literals (`006e3410.c` uses `0x8010000` on every pause-menu
+button), so anything on the `gui` object is Lua-private state. See [ui-holes.md](ui-holes.md).
 
 ### Multi-line and text
 

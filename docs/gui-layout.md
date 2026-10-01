@@ -238,8 +238,8 @@ Two documented arguments behave unexpectedly:
 
 ## Tooltip
 
-`GuiTooltip` is the only function that reads the process-global previous-widget record rather
-than anything on the `gui` object. Its sequence is:
+`GuiTooltip` is the only function that reads a **process-global** scratch widget record rather than
+the per-`gui` record at `gui+0x38`. Its sequence is:
 
 1. If the previous widget was not hovered, or its record has already been consumed, draw nothing
    and return.

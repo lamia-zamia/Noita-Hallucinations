@@ -2400,6 +2400,8 @@ Returns `string`
 
 
 
+> Runs the label through `FUN_0084b3a0`: a label starting with `$` is looked up in `data/translations/common.csv`, and a label with **no** `$` is replaced with an empty string. A literal like `"Play"` therefore renders nothing — pass `"$some_key"`.
+
 > A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
 
 #### `GameTriggerGameOver`  
@@ -2571,7 +2573,7 @@ reads `0x01207b38`
 
 writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &middot; reads `0x010539f8` = 1073741824 / 2
 
-> Writes the process-global *previous widget* block (`0x01154b98`-`0x01154ba8`) that `GuiGetPreviousWidgetInfo` reads. Two `Gui` objects in one frame clobber each other here.
+> Writes the **process-global scratch widget record** (`0x01154b98`-`0x01154ba8`) that `GuiTooltip` reads, then commits its own record to `gui+0x38` (which is what `GuiGetPreviousWidgetInfo` returns). Two `Gui` objects do **not** clobber each other here; the shared part is the tooltip.
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
@@ -2595,7 +2597,7 @@ Returns `clicked:bool,right_clicked:bool`
 
 writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &middot; reads `0x01053780` = 1065353216 / 1
 
-> Writes the process-global *previous widget* block (`0x01154b98`-`0x01154ba8`) that `GuiGetPreviousWidgetInfo` reads. Two `Gui` objects in one frame clobber each other here.
+> Writes the **process-global scratch widget record** (`0x01154b98`-`0x01154ba8`) that `GuiTooltip` reads, then commits its own record to `gui+0x38` (which is what `GuiGetPreviousWidgetInfo` returns). Two `Gui` objects do **not** clobber each other here; the shared part is the tooltip.
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
@@ -2660,7 +2662,7 @@ Runtime messages:
 
 writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &middot; reads `0x01053c18` = 1084227584 / 5
 
-> Writes the process-global *previous widget* block (`0x01154b98`-`0x01154ba8`) that `GuiGetPreviousWidgetInfo` reads. Two `Gui` objects in one frame clobber each other here.
+> Writes the **process-global scratch widget record** (`0x01154b98`-`0x01154ba8`) that `GuiTooltip` reads, then commits its own record to `gui+0x38` (which is what `GuiGetPreviousWidgetInfo` returns). Two `Gui` objects do **not** clobber each other here; the shared part is the tooltip.
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
@@ -2812,7 +2814,7 @@ reads `0x01053780` = 1065353216 / 1, `0x010539f8` = 1073741824 / 2
 
 writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &middot; reads `0x00fe3c84`
 
-> Writes the process-global *previous widget* block (`0x01154b98`-`0x01154ba8`) that `GuiGetPreviousWidgetInfo` reads. Two `Gui` objects in one frame clobber each other here.
+> Writes the **process-global scratch widget record** (`0x01154b98`-`0x01154ba8`) that `GuiTooltip` reads, then commits its own record to `gui+0x38` (which is what `GuiGetPreviousWidgetInfo` returns). Two `Gui` objects do **not** clobber each other here; the shared part is the tooltip.
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
@@ -2834,7 +2836,7 @@ Returns `clicked:bool,right_clicked:bool`
 
 writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8`
 
-> Writes the process-global *previous widget* block (`0x01154b98`-`0x01154ba8`) that `GuiGetPreviousWidgetInfo` reads. Two `Gui` objects in one frame clobber each other here.
+> Writes the **process-global scratch widget record** (`0x01154b98`-`0x01154ba8`) that `GuiTooltip` reads, then commits its own record to `gui+0x38` (which is what `GuiGetPreviousWidgetInfo` returns). Two `Gui` objects do **not** clobber each other here; the shared part is the tooltip.
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
@@ -2860,7 +2862,7 @@ Runtime messages:
 
 writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &middot; reads `0x01053780` = 1065353216 / 1
 
-> Writes the process-global *previous widget* block (`0x01154b98`-`0x01154ba8`) that `GuiGetPreviousWidgetInfo` reads. Two `Gui` objects in one frame clobber each other here.
+> Writes the **process-global scratch widget record** (`0x01154b98`-`0x01154ba8`) that `GuiTooltip` reads, then commits its own record to `gui+0x38` (which is what `GuiGetPreviousWidgetInfo` returns). Two `Gui` objects do **not** clobber each other here; the shared part is the tooltip.
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
@@ -3049,7 +3051,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 
 > **The binary enforces 11 arguments, fewer than the 12 the signature marks as required** (12 declared). Trust the enforced number.
 
-> Writes the process-global *previous widget* block (`0x01154b98`-`0x01154ba8`) that `GuiGetPreviousWidgetInfo` reads. Two `Gui` objects in one frame clobber each other here.
+> Writes the **process-global scratch widget record** (`0x01154b98`-`0x01154ba8`) that `GuiTooltip` reads, then commits its own record to `gui+0x38` (which is what `GuiGetPreviousWidgetInfo` returns). Two `Gui` objects do **not** clobber each other here; the shared part is the tooltip.
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
@@ -3081,7 +3083,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 
 writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &middot; reads `0x01053780` = 1065353216 / 1
 
-> Writes the process-global *previous widget* block (`0x01154b98`-`0x01154ba8`) that `GuiGetPreviousWidgetInfo` reads. Two `Gui` objects in one frame clobber each other here.
+> Writes the **process-global scratch widget record** (`0x01154b98`-`0x01154ba8`) that `GuiTooltip` reads, then commits its own record to `gui+0x38` (which is what `GuiGetPreviousWidgetInfo` returns). Two `Gui` objects do **not** clobber each other here; the shared part is the tooltip.
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
@@ -3101,7 +3103,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 
 writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8`
 
-> Writes the process-global *previous widget* block (`0x01154b98`-`0x01154ba8`) that `GuiGetPreviousWidgetInfo` reads. Two `Gui` objects in one frame clobber each other here.
+> Writes the **process-global scratch widget record** (`0x01154b98`-`0x01154ba8`) that `GuiTooltip` reads, then commits its own record to `gui+0x38` (which is what `GuiGetPreviousWidgetInfo` returns). Two `Gui` objects do **not** clobber each other here; the shared part is the tooltip.
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
@@ -3130,7 +3132,7 @@ Runtime messages:
 
 writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &middot; reads `0x01207c38`, `0x01207c58`
 
-> Writes the process-global *previous widget* block (`0x01154b98`-`0x01154ba8`) that `GuiGetPreviousWidgetInfo` reads. Two `Gui` objects in one frame clobber each other here.
+> Writes the **process-global scratch widget record** (`0x01154b98`-`0x01154ba8`) that `GuiTooltip` reads, then commits its own record to `gui+0x38` (which is what `GuiGetPreviousWidgetInfo` returns). Two `Gui` objects do **not** clobber each other here; the shared part is the tooltip.
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 

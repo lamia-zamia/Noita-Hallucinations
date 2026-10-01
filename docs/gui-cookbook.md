@@ -261,8 +261,9 @@ reserved, rather than inventing behaviour for all 64.
 
 ## The previous-widget record
 
-`GuiGetPreviousWidgetInfo` returns 11 values from a **process-global** record, not per-`gui`.
-Two mods drawing in the same frame clobber each other's result, and whichever ran last wins.
+`GuiGetPreviousWidgetInfo` returns 11 values from a record **on the `gui` object, at `gui+0x38`**.
+Two `Gui` objects do not interfere. If the `gui` argument fails handle validation the function
+falls back to a static zeroed record, so it returns zeroes rather than another object's data.
 
 Exactly ten functions write it:
 
@@ -273,7 +274,7 @@ GuiSlider                 GuiText                GuiTextCentered
 GuiTextInput
 ```
 
-If you are reimplementing, make this per-`gui` and per-widget rather than process-global, and
+If you are reimplementing, make it per-widget rather than one "last widget" slot per `gui`, and
 `GuiTooltip` becomes safe. That is a deliberate divergence from the original, not a bug fix.
 
 ## Containers
@@ -360,7 +361,7 @@ If you are building this, the behaviours that are easy to miss and change how mo
 - [ ] Most option bit positions are **no-ops**; implement only the tested ones.
 - [ ] Layout/id/layer stacks are **not** reset per frame.
 - [ ] Extents accumulate even when the cursor does not advance.
-- [ ] The previous-widget record is **process-global**.
+- [ ] `GuiTooltip` reads a **process-global** scratch record, not the `gui`'s own.
 - [ ] Horizontal spacing **ignores its argument**.
 - [ ] Margins are stored, not applied at begin time.
 - [ ] The scroll offset is a **0..1 fraction of content**, and always animated.
@@ -377,7 +378,7 @@ three worth changing are the ones that make mods interfere:
 | quirk | change to | why |
 |-------|-----------|-----|
 | ids are raw and global | namespace per mod | stops two mods writing each other's widget state |
-| previous-widget record is process-global | per-`gui` | stops two mods clobbering each other's widget info and tooltips |
+| `GuiTooltip` reads a process-global record | read the `gui`'s own | stops two mods' tooltips describing each other's widgets |
 | per-frame stacks are not unwound | reset them | turns a forgotten `End` into a one-frame glitch instead of a permanent one |
 
 Everything else on this page is arithmetic, and arithmetic you can reimplement directly.

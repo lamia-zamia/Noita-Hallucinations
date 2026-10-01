@@ -130,9 +130,10 @@ records at `+0x224` are set by `FUN_008a9f10` with a rectangle of `(1, 0, 1, 1, 
 2. Calls the real `NewFrame`, which recomputes the UI scale, updates the frame counter, reads
    the mouse, clears the "a widget claimed the mouse" flag, and lazily allocates a
    process-global 416-byte container.
-3. Separately builds a zeroed 40-byte widget record and copies it into the **process-global**
-   block at `0x01154b98`–`0x01154bcc`. That block is the "previous widget" descriptor, and it
-   is global rather than per-`gui`.
+3. Separately builds a zeroed 40-byte widget record and copies it into the block at
+   `0x01154b98`–`0x01154bcc`. That block is a **scratch** record the ten Lua widget wrappers build
+   into before committing. The record `GuiGetPreviousWidgetInfo` actually returns is a *different*
+   one, at `gui+0x38` — see "The previous-widget record" below.
 
 ### What a frame does and does not reset
 
@@ -158,8 +159,7 @@ unbalanced `GuiLayoutBegin*` or `GuiIdPush` survives into the next frame**, and 
 `GuiDestroy` does not unwind them either.
 
 Note also that `GuiStartFrame` performs step 3 **outside** its handle check. Calling it with an
-invalid handle skips the real frame reset but still wipes the process-global widget
-descriptor.
+invalid handle skips the real frame reset but still wipes the shared scratch widget record.
 
 ## The id system
 
@@ -336,4 +336,28 @@ is stack garbage. See [gui-bugs.md](gui-bugs.md).
 A widget is hovered when the mouse is inside its rectangle, and the frame has a single flag at
 `state+0x1fd` that the first hovering widget sets; later widgets are then not considered
 hovered. Clicking additionally requires the mouse-down flag, or a forced option bit. There is
-no "pressed then dragged off" case — click is gated on the pointer still being inside.
+no "pressed then dragged off" case - click is gated on the pointer still being inside.
+
+The full census of that flag, which is useful because it defines exactly where input can and
+cannot be intercepted:
+
+| | count | sites |
+|---|---|---|
+| read | 11 expressions, 9 functions | `008205a0:89`, `00820930:41`, `00820bf0:109`, `008221d0:82`, `00823580:259`, `008245d0:150,155`, `00824e70:164`, `00825cb0:210,215`, `00826b50:101` |
+| write | 3 | `008245d0:189` (button), `00823580:288` (image button), `00825cb0:251` (text input) |
+| clear | 1 | `008187d0:1175`, in that object's own `NewFrame` only |
+
+Three consequences that are easy to get wrong:
+
+- **Ownership is decided by draw order, not by options or z.** The first widget drawn under the
+  cursor takes the mouse for the rest of the frame. There is no priority and no early release.
+- **A disabled or invisible widget does not claim it.** The button builder returns a
+  disabled/invisible flag, and a widget with that flag set skips the claim entirely
+  (`008245d0.c:160`) while still being hit-tested.
+- **A scroll container does not claim it.** `GuiBeginScrollContainer` (`0x0081f870`) never
+  touches `0x1fd` at all. It is a clip and scroll region; it is not an input trap. Drawing one
+  full-screen and expecting it to swallow clicks does not work - use a button.
+
+Because the flag lives on the object, two `Gui` objects never compete: an overlay on your own
+`Gui` cannot suppress a vanilla screen drawn on the game's. See
+[ui-modding.md](ui-modding.md) for what that rules out.
