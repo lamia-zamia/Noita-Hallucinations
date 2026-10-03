@@ -29,13 +29,13 @@ global environment.
 | `0x007ef130` | `do_mod_appends`, `loadfile`, `print`, `print_error` | globals (the mod-append bootstrap) |
 | `0x00838c70` | clears `OnMagicNumbersAndWorldSeedInitialized` to `nil` | globals |
 | `0x009d65f0` | `_ConfigGunActionInfo_ReadToGame` | gun internals |
-| `0x00b294a0` | gun-system callbacks: `RegisterGunAction`, `OnActionPlayed`, `BeginProjectile`, `StartReload`, … | `GunSystem` |
-| `0x00b2bcc0` | `Reflection_RegisterProjectile`, `GunSystem::GetGunActionInfos` | `GunSystem` |
+| `0x00b294a0` | gun-system callbacks: `RegisterGunAction`, `OnActionPlayed`, `BeginProjectile`, `StartReload`, … | `GunSystem` (and `RegisterGunAction` as a global) |
+| `0x00b2bcc0` | `Reflection_RegisterProjectile`, `GunSystem::GetGunActionInfos` | `GunSystem` (and `RegisterGunAction` as a global) |
 | `0x00ba6b50` | `____cached_func` cache | Lua component internals |
 | `0x00ba6e70` | `____cached_func` cache (`LuaSystem::Execute - reuse per component`) | Lua component internals |
 | `0x00c23e00` | `GameRegisterStatusEffect` and the status-effect names (`ALCOHOLIC`, `FOOD_POISONING`, `INVISIBILITY`, `OILED`, `RADIOACTIVE`, `SLIMY`) | `StatusEffectSystem` |
 
-Two of these are worth knowing about as a mod author, because they are how you register the
+Three of these are worth knowing about as a mod author, because they are how you register the
 things that cannot be expressed in an entity XML file:
 
 - `GameRegisterStatusEffect` — the only way to add a status effect. It is reached through the
@@ -44,6 +44,9 @@ things that cannot be expressed in an entity XML file:
 - The MetaObject tables behind `0x007a0390` / `0x007a0770` — this is the machinery that makes
   `ComponentObjectGetValue2`, `EntityAddComponent2` and every typed `Component*Value*` call
   work. When one of those reports `isn't a MetaObject or doesn't exist`, this is what it means.
+- `RegisterGunAction` (`0x00b294a0`, installed again by `0x00b2bcc0`) — the only way to add a wand
+  card. It *is* a plain global despite living in this table, which is why it is absent from the list
+  of 375. See [gun-actions.md](gun-actions.md).
 
 These thirteen do not use the `pushcclosure` → `setfield` adjacency because they either
 register a value that is already on the stack, build a table, or compute the field name at run
