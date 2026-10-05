@@ -47,7 +47,7 @@ both booleans compare against the 2039 row and nothing else will ever match.
 
 | 2030 | 2031 | 2032 | 2033 | 2034 | 2035 | 2036 | 2037 | 2038 | 2039 |
 |-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
-| 21 | 20 | 19 | 25 | 24 | 23 | 22 | 20 | 19 | 25 |
+| 21 | 20 | 25 | 24 | 23 | 22 | 20 | 19 | 25 | 24 |
 
 `TABLE_B` (`0x011535c0`) is a **month/day pair per year**, so this one is not June-bound:
 
@@ -55,12 +55,12 @@ both booleans compare against the 2039 row and nothing else will ever match.
 |------|------|------|------|------|------|------|------|------|------|
 | 2021 | 3/28 | 2022 | 4/10 | 2023 | 4/2 | 2024 | 3/24 | 2025 | 4/13 |
 | 2026 | 3/29 | 2027 | 3/21 | 2028 | 4/9 | 2029 | 3/25 | 2030 | 4/14 |
-| 2031 | 4/6 | 2032 | 3/21 | 2033 | 4/10 | 2034 | 4/2 | 2035 | 3/24 |
-| 2036 | 4/13 | 2037 | 3/29 | 2038 | 3/21 | 2039 | 3/18 | | |
+| 2031 | 4/6 | 2032 | 3/21 | 2033 | 4/10 | 2034 | 4/2 | 2035 | 3/18 |
+| 2036 | 4/6 | 2037 | 3/29 | 2038 | 4/18 | 2039 | 4/3 | | |
 
-The dates drift earlier each year, which is what you expect from an anniversary-style event
-observed on a fixed calendar day rather than a fixed week. The binary does not say what the
-event is; the tables are the whole of the mechanism.
+The dates move around the calendar from year to year rather than repeating, as an event pinned to
+a weekday or a lunar rule would. The binary does not say what the events are; the tables are the
+whole of the mechanism.
 
 **If you are writing a seasonal or anniversary mod, do not hardcode these.** Read them out of
 the return values, and treat both booleans as false outside 2021–2039.
@@ -119,7 +119,7 @@ happens.
 
 ## The four `Streaming*` functions
 
-All four are Twitch-integration leftovers, and all four have the same shape: **lazily construct
+All four are Twitch-integration leftovers. Three of them have the same shape: **lazily construct
 a `StreamingIntegrationLuaManager` if it does not exist, then call through it**.
 
 ```c
@@ -138,8 +138,9 @@ worth avoiding:
 - **`StreamingForceNewVoting`** → no return value. It tests a flag at `+0x4c8` on the manager and,
   only if set, writes `+0x4e0 = 1` and a zeroed 64-bit value at `+0x4e8`. **The flag test has no
   `else`**, so with no stream connected the call does nothing at all — silently.
-- **`StreamingGetVotingCycleDurationFrames`** → one integer. It sums two phase durations
-  (`+0xea4` and `+0xea8`) and multiplies by `60.0`, i.e. **seconds to frames at 60 fps**, then
+- **`StreamingGetVotingCycleDurationFrames`** → one integer. It does not touch the streaming
+  manager: it reads two phase durations (floats at `+0xea4` and `+0xea8`) from the object returned
+  by slot `+0xac` of the global singleton, sums them and multiplies by `60.0`, i.e. **seconds to frames at 60 fps**, then
   truncates to an integer. The truncation is not rounding: a 2.5-second cycle reports 150, a
   2.99-second cycle also reports 179 rather than 180.
 
@@ -167,7 +168,7 @@ of the error-dedup rule, you see this line once per session no matter how often 
 None of these eight are useful to a mod author, and three of them are actively misleading:
 
 - Do not use the two date functions for anything that must keep working. The holiday booleans
-  are hardcoded to 2021–2039 and drift.
+  are hardcoded to 2021–2039 and move from year to year.
 - Do not use `InputGetMousePosOnScreen` to position GUI widgets; it is unscaled screen space and
   the GUI already tracks its own.
 - Avoid the `Streaming*` family entirely unless you are writing a Twitch integration, and treat

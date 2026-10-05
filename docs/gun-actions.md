@@ -89,7 +89,7 @@ each effect is the field's name plus how the shipped action files use it.
 | 19 | `state_cards_drawn` | +0xf8 | int `0` | engine wand state: cards drawn counter |
 | 20 | `state_discarded_action` | +0xfc | bool `false` | engine wand state: an action was discarded |
 | 21 | `state_destroyed_action` | +0xfd | bool `false` | engine wand state: an action was destroyed |
-| 22 | `fire_rate_wait` | +0x100 | number → **int field** `0` | extra frames added to this action's re-fire lock; vanilla uses +2 … +20 |
+| 22 | `fire_rate_wait` | +0x100 | int `0` | extra frames added to this action's re-fire lock; vanilla uses +2 … +20 |
 | 23 | `speed_multiplier` | +0x104 | number `1.0` | projectile speed scale |
 | 24 | `child_speed_multiplier` | +0x108 | number `1.0` | speed scale for projectiles spawned by this projectile's children |
 | 25 | `dampening` | +0x10c | number `1.0` | projectile velocity damping scale |
@@ -98,7 +98,7 @@ each effect is the field's name plus how the shipped action files use it.
 | 28 | `pattern_degrees` | +0x118 | number `0` | angular step of the multi-projectile pattern |
 | 29 | `screenshake` | +0x11c | number `0` | camera shake amount |
 | 30 | `recoil` | +0x120 | number `0` | shooter kickback |
-| 31 | `damage_melee_add` | +0x124 | **integer → float field** `0` | melee damage addend — see the trap below |
+| 31 | `damage_melee_add` | +0x124 | number `0` | melee damage addend |
 | 32 | `damage_projectile_add` | +0x128 | number `0` | projectile damage addend |
 | 33 | `damage_electricity_add` | +0x12c | number `0` | electricity damage addend |
 | 34 | `damage_fire_add` | +0x130 | number `0` | fire damage addend |
@@ -203,26 +203,19 @@ The same 65 names are the attributes of a `<gunaction_config>` element inside a 
 </AbilityComponent>
 ```
 
-102 shipped files contain this element. Note that all of them also set five attribute names the
+102 shipped files contain this element. Note that ten of them also set five attribute names the
 engine does not know — `damage_melee`, `damage_projectile`, `damage_electricity`, `damage_fire`,
 `damage_explosion` — which are the pre-rename spellings of the five `_add` fields. They are
 ignored. If you are writing a wand XML by hand, use `damage_projectile_add`.
 
 ## Traps
 
-1. **`damage_melee_add` cannot hold a fraction.** The argument is read with `lua_tointeger`, but
-   the field is a float and the mirror function (`0x009d5c60`) pushes it back with
-   `lua_pushnumber`. An integer bit pattern ends up in a float slot, so `2.7` becomes
-   approximately zero. Whole numbers only.
-2. **`fire_rate_wait` is an integer field** — the mirror function reads it with
-   `lua_pushinteger` — but the argument is read with `lua_tonumber`. A fractional value stores
-   float bits into an int slot and comes back as garbage. Keep it a whole number of frames.
-3. **Duplicate ids do not warn.** Register the same `action_id` from two mods and the second one
+1. **Duplicate ids do not warn.** Register the same `action_id` from two mods and the second one
    silently replaces the first.
-4. **An unknown id is not an error.** You get a record of defaults and a wand that fires nothing.
-5. **Registration is global and permanent.** There is no unregister, and nothing is scoped to a
+2. **An unknown id is not an error.** You get a record of defaults and a wand that fires nothing.
+3. **Registration is global and permanent.** There is no unregister, and nothing is scoped to a
    wand or a run.
-6. **The damage field names all end in `_add`.** `c.damage_projectile` is not a field at all: it
+4. **The damage field names all end in `_add`.** `c.damage_projectile` is not a field at all: it
    is `nil`, so `c.damage_projectile = c.damage_projectile + 0.4` raises a Lua error. The gun
    callbacks are invoked inside `lua_pcall` (with the engine's error handler), so the game survives
    — but the rest of that action's closure is skipped too, and the game carries on.
@@ -232,9 +225,10 @@ ignored. If you are writing a wand XML by hand, use `damage_projectile_add`.
 `data/scripts/gun/` ships four action lists that **nothing loads**: `gun_actions_unlimited.lua`,
 `gun_actions_limited.lua`, `gun_actions_petri.lua` and `_gun_actions_unlimited.lua`. `gun.lua`
 loads only `gun_actions.lua` and `gun_extra_modifiers.lua`. The four dead files still use the
-pre-rename `c.damage_projectile` / `c.damage_explosion` / `c.damage_electricity` names in 17 live
-places each. `gun_actions.lua` itself is clean — its six occurrences of the old names are all inside
-commented-out blocks.
+pre-rename `c.damage_projectile` / `c.damage_explosion` / `c.damage_electricity` names in 13 to 16 live
+places each. `gun_actions.lua` itself is effectively clean — five of its six occurrences of the old
+names are inside commented-out blocks, and the sixth is `c.damage_explosion = 0` in the
+zero-damage action, which writes a stray field and has no effect.
 
 If you are copying an action out of one of those files, the damage line will not work.
 

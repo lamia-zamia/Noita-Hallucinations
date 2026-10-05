@@ -41,12 +41,12 @@ What follows:
   parameters and test them independently, which is why a single `GUI_OPTION` value can never
   set one bit in each half.
 - **A value of 64 or more is silently discarded** — both halves end up zero, with no error and
-  no log line. A negative value falls into the `& 0x1f` path and sets an arbitrary low bit.
+  no log line. A negative value is compared as an unsigned number, so it is discarded the same way.
 - Note this is **not** modulo-32 aliasing: `GuiOptionsAdd(gui, 32)` is a *different* option from
   `GuiOptionsAdd(gui, 0)`, it just happens to land in the other half.
 
-The game defines far fewer than 32 options, so in practice only the "no pre-combined mask" rule
-and the dropped-out-of-range case matter.
+`GUI_OPTION` defines values 1-29 in the low half and 47-51, 62 and 63 in the high half, so both
+halves are in use and the "one value, one half" rule matters in practice.
 
 **What each option value actually does is in
 [gui-options.md](gui-options.md)** — the effects are in the executable even though the names
@@ -62,7 +62,7 @@ the frame-wide set and two for the pending "next widget" set:
 | `GuiOptionsAdd` | `field \|= 1 << (v & 31)` | `+0x08` | `+0x0c` |
 | `GuiOptionsRemove` | `field &= ~(1 << (v & 31))` | `+0x08` | `+0x0c` |
 | `GuiOptionsAddForNextWidget` | `field \|= 1 << (v & 31)` | `+0x10` | `+0x14` |
-| `GuiOptionsClear` | `high half = 0` | — | `+0x0c` |
+| `GuiOptionsClear` | reset to the default set: low half `= 1`, high half `= 0` | `+0x08` | `+0x0c` |
 
 A widget receives the two halves as two separate arguments, and the Lua wrapper merges the
 pending and frame-wide sets before passing them:
@@ -76,25 +76,23 @@ Two consequences:
 
 - **A single `GUI_OPTION` value can never set one bit in each half.** You combine options by
   calling the function once per value.
-- **`GuiOptionsClear` only zeroes the high half** (`+0x0c`). It leaves the frame-wide low half
-  alone, so clearing does not actually clear every frame-wide option. And nothing Lua-callable
-  writes the pending pair except `GuiOptionsAddForNextWidget` — it is consumed and reset by the
-  per-widget commit, which resets it to `1` (option bit 0, the default alignment) rather than
-  `0`.
+- **`GuiOptionsClear` resets the frame-wide pair** (`+0x08` to `1`, `+0x0c` to `0`) - the same
+  default the pending pair is reset to - rather than to zero. Nothing Lua-callable writes the
+  pending pair except `GuiOptionsAddForNextWidget` — it is consumed and reset by the per-widget
+  commit, which resets it to `1` (option bit 0, the default alignment) rather than `0`.
 
 The practical consequence of the pending half: an abandoned "next widget" option can still
 apply to a later widget, because nothing else clears it.
 
 ## Getting the actual values
 
-The game contains a generator that walks the live Lua state and writes these tables out. Run
-the game once with `out_json` set on the `GlobalLuaManager` entry point and it produces
-`tools_modding/lua_api_documentation.json`, which includes the enum tables that static analysis
-of the executable cannot reach. See [api-registration.md](api-registration.md#the-game-ships-an-api-documentation-generator).
+The tables are plain Lua in the data tree - read them from `data/scripts/lib/utilities.lua`
+(`GUI_OPTION`, `GUI_RECT_ANIMATION_PLAYBACK`) and `data/scripts/debug/keycodes.lua`. The game's
+documentation generator does not emit them: it only formats the function signature strings (see
+[api-registration.md](api-registration.md#the-game-ships-an-api-documentation-generator)).
 
-Cross-check that dump against the 375 names and enforced arities in
-[api-reference.md](api-reference.md): it is the only way to get an authoritative, current
-answer for both halves at once.
+Cross-check those files against the arities in [api-reference.md](api-reference.md) to get an
+authoritative, current answer for both halves at once.
 
 ## Cell materials have no numeric literals in the API
 

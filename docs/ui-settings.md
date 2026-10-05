@@ -94,7 +94,7 @@ serialiser and agrees with what the options screen dereferences.
 | `$menuoptions_resetsave` | `0x35c9` | — | — | button | — | confirm dialog |
 | `$menu_applyandreturn` | `0x361b` | — | — | button | — | drawn on every tab, outside the tab switch |
 
-Plus seven foldable section headings: `$menuoptions_heading_window` (not foldable),
+Plus five section headings: `$menuoptions_heading_window` (not foldable),
 `_compatibility`, `_replayrecorder`, `_online`, `_misc`.
 
 ### Tab 1 — Graphics
@@ -182,9 +182,9 @@ the general options headings use some other, unnamed fold asset that was not rec
 When a mod is expanded, the C++ screen calls **back into that mod's Lua**. The contract:
 
 > a mod defines a global function `ModSettingsGui(gui, is_front_end)`. The game fetches it,
-> checks it is a table/callable, pushes the C++ GUI object as light userdata and a boolean
+> checks that it is a function, pushes the C++ GUI object as light userdata and a boolean
 > saying whether the front-end menu (rather than the in-game pause menu) is what's open, and
-> calls it with two arguments. If the value is not a table it unwinds cleanly.
+> calls it with two arguments. If the value is not a function it unwinds cleanly.
 
 The mod's settings come from its `settings.lua`, read after `mods/<id>/mod.xml` and
 `mod_id.txt`.
@@ -197,8 +197,9 @@ from the command-line switches `-always_store_userdata_in_appdata` and
 `-always_store_userdata_in_workdir`, and the AppData folder name is `Nolla_Games_Noita`. The
 binary does not contain the resolved path.
 
-Format is XML, two spaces of indentation per level, one element per key, and two named
-sub-sections that become child elements:
+Format is XML: a single `<Config>` element with **every key as an attribute** (one per line,
+two-space indent), and two child elements for the named sub-sections, which carry their keys
+the same way:
 
 - `[KeyboardControls]` at config offset `0x10c`
 - `[GamepadControls]` at config offset `0x7a4`
@@ -211,8 +212,8 @@ form may not survive a load/save cycle for the int-typed keys.
 
 Writes are **write-if-absent**: the serialiser checks `map.find(key)` and only appends when the
 key is not already present. But the save path builds a *fresh* document, so at the top level
-the guard never fires and **the file is rewritten in full, in the canonical order of the
-visitor, on every save**. Your hand-added ordering and comments do not survive.
+the guard never fires and **the file is rewritten in full, with the attributes in alphabetical
+order, on every save**. Your hand-added ordering and comments do not survive.
 
 Defaults for absent keys come from the config struct's own initialiser, not from a table in
 the file. For the two control sections the default is generated on demand and copied in
@@ -228,6 +229,7 @@ Worth knowing because they are the interesting ones for a reimplementer:
 | key | off | what |
 |---|---|---|
 | `internal_size_w` / `internal_size_h` | `0x4` / `0x8` | the internal render resolution |
+| `has_been_started_before`, `audio_fmod`, `last_started_game_version_hash` | `0x88`, `0x89`, `0xec` | first-run flag, audio-engine switch, build hash of the last launch |
 | `framerate` | `0xc` | |
 | `sounds`, `report_fps`, `joysticks_enabled` | `0x11`, `0x30`, `0x31` | engine-wide toggles with no menu row |
 | `record_events`, `do_a_playback`, `playback_file`, `event_recorder_flush_every_frame` | `0x13`, `0x14`, `0x18`, `0x12` | the event recorder |
@@ -274,22 +276,22 @@ Those two scalars are `gamepad_analog_sticks_threshold` (default **0.5**) and
 ### Keyboard defaults
 
 The keycode namespace is the engine's own, not Win32: `4` left, `7` right, `22` down, `26` up,
-`−1` mouse-left, `−2` mouse-right, `−16`/`−24` wheel.
+`−1` mouse-left, `−2` mouse-right, `−4` mouse-middle, `−16` wheel down, `−8` wheel up, `44` space, `43` tab.
 
 | action | primary | secondary | action | primary | secondary |
 |---|---|---|---|---|---|
-| `key_up` | 26 | 44 | `key_item_slot1` | 32 | |
-| `key_down` | 22 | | `key_item_slot2` | 33 | |
-| `key_left` | 4 | | `key_item_slot3` | 34 | |
-| `key_right` | 7 | | `key_item_slot4` | 35 | |
-| `key_use_wand` | −1 | | `key_item_slot5` | 36 | |
-| `key_spray_flask` | −1 | | `key_item_slot6` | 37 | |
-| `key_throw` | −2 | | `key_item_slot7` | 38 | |
-| `key_kick` | 9 | | `key_item_slot8` | 39 | |
-| `key_inventory` | 12 | 43 | `key_item_slot9` | 40 | |
-| `key_interact` | 8 | | `key_item_slot10` | 41 | |
-| `key_item_next` | 30 | | `key_ui_quick_drag` | 225 | 229 |
-| `key_item_prev` | 31 | | `key_takescreenshot` | 59 | |
+| `key_up` | 26 | 44 | `key_item_slot1` | 30 | |
+| `key_down` | 22 | | `key_item_slot2` | 31 | |
+| `key_left` | 4 | | `key_item_slot3` | 32 | |
+| `key_right` | 7 | | `key_item_slot4` | 33 | |
+| `key_use_wand` | −1 | | `key_item_slot5` | 34 | |
+| `key_spray_flask` | −1 | | `key_item_slot6` | 35 | |
+| `key_throw` | −2 | | `key_item_slot7` | 36 | |
+| `key_kick` | 9 | | `key_item_slot8` | 37 | |
+| `key_inventory` | 12 | 43 | `key_item_slot9` | 38 | |
+| `key_interact` | 8 | | `key_item_slot10` | 39 | |
+| `key_item_next` | −16 | | `key_ui_quick_drag` | 225 | 229 |
+| `key_item_prev` | −8 | | `key_takescreenshot` | 59 | |
 | `key_replayedit_open` | 68 | | | | |
 
 `key_drop_item` and `key_drink_potion` have **no keyboard default** — they are never assigned
@@ -323,10 +325,10 @@ the same field, which is worth knowing before you parse the file yourself.
 |---|---|---|
 | the ~60 visible options | **No** | no Lua binding reads or writes the config struct |
 | key bindings | **No** | you can *read* input (`InputIsKeyDown`, `InputIsJoystickButtonDown`, `InputGetJoystickAnalogStick`) but not rebind or enumerate the player's bindings |
-| a mod's own settings | **Yes** | `ModSetting*`, persisted to `??S00/mod_settings.xml` and `mod_settings.bin` — a different file from `config.xml` |
+| a mod's own settings | **Yes** | `ModSetting*`, persisted to `??S00/mod_settings.bin` (with any legacy `mod_settings.xml` deleted on load) — a different file from `config.xml` |
 | magic numbers | **Yes** | `ModMagicNumbersFileAdd`, and `magic_numbers.xml` itself is data |
 | translations | **Yes** | `ModTextFileGetContent`/`SetContent` on `data/translations/common.csv`; duplicate keys later in the file win, so appending is enough |
-| the config file itself | **Yes, indirectly** | `ModTextFile*` can rewrite `??USR/config.xml`, but it is a user-data path and the resolved location varies by launch switches |
+| the config file itself | **No** | `ModTextFile*` is gated to the `data/` and `mods/` prefixes, so `??USR/config.xml` is out of reach — the call logs and does nothing |
 
 The practical consequence: the game settings are a closed C++ struct, but **mod settings,
 magic numbers and translations are all open**, and those three cover most of what a modder

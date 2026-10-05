@@ -49,27 +49,29 @@ gets you garbage. The order was confirmed from two independent call sites.
 **The HP text size is logarithmic:**
 
 ```
-textScale = max(40.0, log10(maxHp) * 40.0)
+textScale = 80                              if maxHp >= 40      (stored value; 1000 displayed HP)
+textScale = log10(maxHp * 2.5) * 40         otherwise; 40 if that comes out negative
 ```
 
-capped at a constant above a maximum-HP threshold. The HP readout grows with the *logarithm* of
-max health and is floored at 40 — which is why it never overflows. A fixed size looks wrong the
-moment the player takes a max-health container.
+`maxHp` here is the stored double at `+0x50`, which is the displayed HP divided by 25, so a
+100-HP player gets exactly 40. The HP readout grows with the *logarithm* of max health up to a
+cap of 80, which is why it never overflows. A fixed size looks wrong the moment the player takes a
+max-health container.
 
 **The damage ghost.** On damage the game stores the HP at that moment and draws the difference
-as a separate chunk, fading out over a second:
+as a separate chunk, fading out over half a second:
 
 ```
 ghost      = min(0, hp − max(storedDamageHp, 0))
-ghostAlpha = clamp01(1 − (now − lastDamageFrame) / 60)
+ghostAlpha = clamp01(1 − (now − lastDamageFrame) / 30)
 ```
 
 **The low-HP flash and the ghost use opposite parities of the same 30-frame counter.** On the
 even half-second the *background* switches to the low-HP sprite; on the odd half-second the
 *fill* switches to the damage sprite. They alternate against each other, not together. The
-threshold is compared against **raw HP**, not a ratio — which may be a latent bug; the tunable
-default `UI_LOW_HP_THRESHOLD = 1.3333` is a ratio, and if that is what the compiled constant is,
-the condition is essentially never true.
+threshold is compared against the **raw stored HP** (the double at `+0x48`, displayed HP / 25) with a
+global whose initial value is `0.25` (6.25 displayed HP); that value is not `UI_LOW_HP_THRESHOLD`'s
+default of 1.3333.
 
 **Mana and max mana are truncated to integers** while HP keeps its decimals. Inconsistent, and
 visible in game.
@@ -88,16 +90,14 @@ Sprites, per bar: `colors_bar_bg.png` (background), `colors_flying_bar.png` (air
 `$hud_health`, `$hud_air`, `$hud_jetpack`, `$hud_wand_mana`, `$hud_wand_reload`, `$hud_gold`,
 `$hud_orbs`, `$hud_title_wands`, `$hud_title_throwables`, `$infinity_symbol`.
 
-The air bar's sprite scale is **1.43**, not 1.0 — the only non-unit bar scale in the file.
-
 ### Status indicators and perks — `0x00b795f0`
 
 Three things in one column: the satiation indicator, on-fire, and the perk row with its
 overflow popup.
 
 **Satiation** is a 7-step sprite ladder selected by a **linear scan from the top threshold
-down**, first threshold ≤ value wins, defaulting to `satiation_00`. Two of the seven
-thresholds are literal (0.25, 0.90, 1.40) and the rest come from tunables. The fill fraction is
+down**, first threshold ≤ value wins, defaulting to `satiation_00`. The seven
+thresholds are 0, 0.25, 0.9, 1.0, 1.4, 1.5 and 1.75, all compiled-in constants. The fill fraction is
 clamped with the game's usual unsigned-64-bit compare idiom.
 
 **On fire** uses the same component as the health bar: a flag at `+0x204`, a timer and timer-max
@@ -125,12 +125,14 @@ FUN_00b7d510   constructs a snapshot struct, publishes it, destroys it
        └─ FUN_00c86980  assigns the snapshot's record vector to DAT_0122252c/30
 ```
 
-`FUN_00b7d570` has exactly one caller, and the snapshot that caller publishes comes from a
+`FUN_00b7d570` has exactly one caller (`FUN_00b7d510`, which is itself reached only through a
+vftable slot at `0x01041f74`), and the snapshot that caller publishes comes from a
 constructor that **zeroes all eighteen fields** before publication. So the two pointers are
 always equal, the loop never runs, and the function returns having drawn nothing.
 
 The only other writer, `FUN_00b7d890`, destroys the range and then sets the end pointer back to
-the beginning — it *empties* the vector, and has no callers.
+the beginning — it *empties* the vector. It has no direct callers; like `FUN_00b7d510` it is a
+vftable slot (`0x01041f98`), so whether anything invokes it is not visible statically.
 
 Which makes this a fossil rather than a bug: the game shipped local co-op UI code and never
 populated it. Noita Together exists as a mod precisely because the game has no multiplayer. If
@@ -261,8 +263,8 @@ x = (screen_w/ui_scale − slot) * 0.5
 y = (screen_h/ui_scale − slot) * 0.5
 ```
 
-**14 widget ids, stride 112 bytes: 7 slots × (banner + delete button)**, ids `0x3525` through
-`0x3531` in steps of 2. A slot with no save gets a greyed-out banner and a dark tint
+**Seven slot ids, `0x3525` through `0x3531` in steps of 2, and a 112-byte (`0x70`) per-slot state
+record.** A slot with no save gets a greyed-out banner and a dark tint
 (`0x7f7f7f7f`).
 
 Banner sprites: `banner_background_continue.png` / `_hovered`, and the `newworld` pair for an
@@ -339,7 +341,6 @@ bite a reimplementation that copies the structure without reading the arithmetic
 - The fold-arrow sprite used by options section headings — `button_fold_*.png` is per-mod only,
   so the general headings use some other unnamed asset.
 - The **real** path of the user data directory.
-- The `config.xml` element value format — element text or attribute.
 - The health-bar Y anchor fraction, which comes from a compiled tunable whose value was not
   decoded. This is the one number you would need to place a bar exactly where the game does.
 - The arithmetic of `0x00b65fb0`, the wand stat panel — it timed out the decompiler.

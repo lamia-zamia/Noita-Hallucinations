@@ -78,8 +78,8 @@ The engine functions that a large share of the API routes through. Everything el
 | address | functions | role |
 |---------|----------:|------|
 | `0x007efbc0` | 367 | Error sink: formats the message, logs `"Lua error - <msg>"`, and **suppresses an immediate repeat of an identical message** (globals `DAT_01225c10` / `DAT_01223e88`). Does not raise a Lua error. |
-| `0x007efe10` | 152 | String-arg fallback: logs `"<n> param wasn't a string, string was expected"` and returns the hardcoded default string supplied by the caller. |
-| `0x00439bb0` | 105 | Lazy constructor for the **entity-manager singleton** stored at `DAT_01204b98`. |
+| `0x007efe10` | 152 | String-arg **reporter**: logs `"<signature> param <n> wasn't a string, string was expected"` and returns a pointer to the empty string constant at `0x00fe3c84`, which most call sites use as the argument's value. The signature text is only log context; it is never used as the argument. |
+| `0x00439bb0` | 105 | Lazy accessor for the **game object** stored at `DAT_0122374c` (constructed on first use). |
 | `0x0056eba0` | 59 | Entity lookup: linear scan of the manager's pointer vector comparing ids. |
 | `0x0078c030` | 40 | Gui handle validator: returns 0 for a stale `gui` handle (call then no-ops). Caches the last handle in the global `DAT_01223fe0` and checks it against a registry sentinel `DAT_01224ac8`. |
 | `0x008a8a00` | 33 | Component lookup: 29 of the 30 `Component*` functions resolve their `component_id` through this. |
@@ -201,14 +201,14 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | - | - |
-| 2 | `component_type_name` | `string` | - | -<br>hardcoded *this function's own usage string* |
+| 2 | `component_type_name` | `string` | - | -<br>becomes `""` |
 | 3 | `table_of_component_values` | `{string}` | - | documented `nil` |
 
 Returns `component_id:int`
 
 writes `0x01152ff0` = 1 &middot; reads `0x00ff6660` = 44, `0x010027a4` = _tags, `0x01204b30`, `0x01204b98`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 > Returns through a push-helper rather than a `lua_push*` call, so the return value does not appear in the decompiled body.
 
@@ -217,7 +217,7 @@ writes `0x01152ff0` = 1 &middot; reads `0x00ff6660` = 44, `0x010027a4` = _tags, 
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 2 | (unnamed) | - | - | -<br>hardcoded *this function's own usage string* |
+| 2 | (unnamed) | - | - | -<br>becomes `""` |
 
 Runtime messages:
 - `EntityAddComponent2`
@@ -226,7 +226,7 @@ Runtime messages:
 
 writes `0x01152ff0` = 1 &middot; reads `0x00ff6660` = 44, `0x010027a4` = _tags, `0x01204b30`, `0x01204b98`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityAddRandomStains`  
 `0x007b52d0` &middot; 777 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -247,11 +247,11 @@ writes `0x01152ff0` = 1 &middot; reads `0x00ff6660` = 44, `0x010027a4` = _tags, 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 reads `0x01204b98`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityApplyTransform`  
 `0x00792a50` &middot; 886 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -277,7 +277,7 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `material` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `material` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `use_material_colors` | `bool` | `lua_toboolean` | documented `true` |
 | 4 | (unnamed) | `replace_existing_cells` | `lua_toboolean` | documented `false` |
 
@@ -289,14 +289,14 @@ reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityCreateNew`  
 `0x0078f360` &middot; 856 instructions &middot; enforces >= 0 args &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `name` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 1 | `name` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 Returns `entity_id:int`
 
@@ -304,7 +304,7 @@ reads `0x01204b98`
 
 > The arity guard is **vacuous** (`lua_gettop` is never negative), so even the 1 documented parameter(s) are not actually enforced.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `EntityGetAllChildren`  
 `0x007935b0` &middot; 1284 instructions &middot; enforces >= 1 arg &middot; returns 1
@@ -314,13 +314,13 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 Returns `{entity_id:int}|nil`
 
 reads `0x01204b98`, `0x01206fac`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityGetAllComponents`  
 `0x00790840` &middot; 976 instructions &middot; enforces >= 1 arg &middot; returns 1
@@ -354,13 +354,13 @@ reads `0x01204b98`
 |---|-----------|----------|---------|-----------|
 | 1 | `pos_x` | `number` | `lua_tonumber` | - |
 | 2 | `pos_y` | `number` | `lua_tonumber` | - |
-| 3 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 3 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `entity_id:int`
 
 reads `0x01204b98`
 
-> A missing/invalid string argument (argument 3) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 3) that is missing or not a string is replaced by an empty string, and a `param 3 wasn't a string, string was expected` warning is logged.
 
 #### `EntityGetClosestWormAttractor`  
 `0x007bdb70` &middot; 993 instructions &middot; enforces >= 2 args &middot; returns 3
@@ -396,8 +396,8 @@ reads `0x01054028` = 2139095039, `0x0122170c`, `0x012219c0`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `component_type_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 2 | `component_type_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 Returns `{component_id}|nil`
 
@@ -407,7 +407,7 @@ Runtime messages:
 
 writes `0x01152ff0` = 1, `0x01225ae4`, `0x01225b2c`, `0x01225b30` &middot; reads `0x00000001`, `0x01204b98`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityGetComponentIncludingDisabled`  
 `0x00791a10` &middot; 1746 instructions &middot; enforces >= 2 args &middot; returns 1
@@ -415,8 +415,8 @@ writes `0x01152ff0` = 1, `0x01225ae4`, `0x01225b2c`, `0x01225b30` &middot; reads
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `component_type_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 2 | `component_type_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 Returns `{component_id}|nil`
 
@@ -426,7 +426,7 @@ Runtime messages:
 
 writes `0x01152ff0` = 1, `0x01225b4c`, `0x01225ebc`, `0x01225b50` &middot; reads `0x00000001`, `0x01204b98`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityGetFilename`  
 `0x00797760` &middot; 940 instructions &middot; enforces >= 1 arg &middot; returns 1
@@ -447,8 +447,8 @@ reads `0x00fe3c84`, `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `component_type_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 2 | `component_type_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 Returns `component_id|nil`
 
@@ -459,7 +459,7 @@ Runtime messages:
 
 writes `0x01225eb4`, `0x01225ef0`, `0x01225eb8` &middot; reads `0x01204b98`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityGetFirstComponentIncludingDisabled`  
 `0x007920f0` &middot; 1464 instructions &middot; enforces >= 2 args &middot; returns 1
@@ -467,8 +467,8 @@ writes `0x01225eb4`, `0x01225ef0`, `0x01225eb8` &middot; reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `component_type_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 2 | `component_type_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 Returns `component_id|nil`
 
@@ -478,7 +478,7 @@ Runtime messages:
 
 writes `0x01225ac4`, `0x01226fc0`, `0x01225ac8` &middot; reads `0x01204b98`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityGetFirstHitboxCenter`  
 `0x007b9d70` &middot; 959 instructions &middot; enforces >= 1 arg &middot; returns 2
@@ -537,7 +537,7 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity` | `int` | `helper:entity` | - |
-| 2 | `hotspot_tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `hotspot_tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `transformed` | `bool` | - | - |
 | 4 | `include_disabled_components` | `bool` | - | documented `false` |
 
@@ -547,7 +547,7 @@ reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityGetInRadius`  
 `0x00795ab0` &middot; 960 instructions &middot; enforces >= 3 args &middot; returns 1
@@ -574,13 +574,13 @@ reads `0x01204b98`
 | 1 | `pos_x` | `number` | `lua_tonumber` | - |
 | 2 | `pos_y` | `number` | `lua_tonumber` | - |
 | 3 | `radius` | `number` | `lua_tonumber` | - |
-| 4 | `entity_tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 4 | `entity_tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `{entity_id:int}`
 
 reads `0x01204b98`, `0x01206fac`
 
-> A missing/invalid string argument (argument 4) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 4) that is missing or not a string is replaced by an empty string, and a `param 4 wasn't a string, string was expected` warning is logged.
 
 #### `EntityGetIsAlive`  
 `0x0078f9a0` &middot; 747 instructions &middot; enforces >= 1 arg &middot; returns 1
@@ -670,13 +670,13 @@ Returns `int`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `entity_id:int`
 
 reads `0x01204b98`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `EntityGetWithTag`  
 `0x00795650` &middot; 1113 instructions &middot; enforces >= 1 arg &middot; returns 1
@@ -685,7 +685,7 @@ reads `0x01204b98`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `{entity_id:int}`
 
@@ -694,7 +694,7 @@ Runtime messages:
 
 reads `0x01204b98`, `0x01206fac`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `EntityHasTag`  
 `0x007973f0` &middot; 866 instructions &middot; enforces >= 2 args &middot; returns 1
@@ -702,13 +702,13 @@ reads `0x01204b98`, `0x01206fac`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `bool`
 
 reads `0x01204b98`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityInflictDamage`  
 `0x007b4030` &middot; 1860 instructions &middot; enforces >= 7 args &middot; returns nothing
@@ -717,9 +717,9 @@ reads `0x01204b98`
 |---|-----------|----------|---------|-----------|
 | 1 | `entity` | `int` | `lua_tointeger` | - |
 | 2 | `amount` | `number` | `lua_tonumber` | - |
-| 3 | `damage_type` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 4 | `description` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 5 | `ragdoll_fx` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 3 | `damage_type` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 4 | `description` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 5 | `ragdoll_fx` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 6 | `impulse_x` | `number` | `lua_tonumber` | - |
 | 7 | `impulse_y` | `number` | `lua_tonumber` | - |
 | 8 | `entity_who_is_responsible` | `int` | `lua_tointeger` | documented `0` |
@@ -734,7 +734,7 @@ reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 3) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 3) that is missing or not a string is replaced by an empty string, and a `param 3 wasn't a string, string was expected` warning is logged.
 
 #### `EntityIngestMaterial`  
 `0x007b4780` &middot; 953 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -768,7 +768,7 @@ reads `0x01204b98`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `pos_x` | `number` | `lua_tointeger` | documented `0` |
 | 3 | `pos_y` | `number` | `lua_tointeger` | documented `0` |
 
@@ -781,27 +781,27 @@ Runtime messages:
 
 writes `0x01204b98` &middot; reads `0x0120866c`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `EntityLoadCameraBound`  
 `0x0078eba0` &middot; 895 instructions &middot; enforces >= 1 arg &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `pos_x` | `number` | `lua_tointeger` | documented `0` |
 | 3 | `pos_y` | `number` | `lua_tointeger` | documented `0` |
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `EntityLoadEndGameItem`  
 `0x0078e640` &middot; 1364 instructions &middot; enforces >= 1 arg &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `pos_x` | `number` | `lua_tointeger` | documented `0` |
 | 3 | `pos_y` | `number` | `lua_tointeger` | documented `0` |
 
@@ -816,7 +816,7 @@ Runtime messages:
 
 writes `0x01204b98` &middot; reads `0x0120866c`, `0x01221d18`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `EntityLoadToEntity`  
 `0x0078ef20` &middot; 843 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -825,12 +825,12 @@ writes `0x01204b98` &middot; reads `0x0120866c`, `0x01221d18`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `entity` | `int` | `helper:entity` | - |
 
 reads `0x01204b98`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `EntityRefreshSprite`  
 `0x007b59d0` &middot; 1024 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -872,13 +872,13 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity` | `int` | `helper:entity` | - |
-| 2 | `status_type_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `status_type_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityRemoveStainStatusEffect`  
 `0x007b4ef0` &middot; 992 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -886,14 +886,14 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity` | `int` | `helper:entity` | - |
-| 2 | `status_type_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `status_type_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `status_cooldown` | `int` | `lua_tointeger` | documented `0` |
 
 reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntityRemoveTag`  
 `0x007970a0` &middot; 835 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -901,11 +901,11 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 reads `0x01204b98`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntitySave`  
 `0x0078f270` &middot; 232 instructions &middot; **no arity check** &middot; returns nothing
@@ -942,7 +942,7 @@ reads `0x01204b98`, `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `enabled` | `bool` | `lua_toboolean` | - |
 
 Runtime messages:
@@ -950,7 +950,7 @@ Runtime messages:
 
 reads `0x01204b98`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntitySetDamageFromMaterial`  
 `0x007b55e0` &middot; 1005 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -960,7 +960,7 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity` | `int` | `helper:entity` | - |
-| 2 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `damage` | `number` | `lua_tonumber` | - |
 
 Runtime messages:
@@ -970,7 +970,7 @@ reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntitySetName`  
 `0x00794fd0` &middot; 847 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -978,11 +978,11 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 reads `0x01204b98`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `EntitySetTransform`  
 `0x007926b0` &middot; 926 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -1006,14 +1006,14 @@ reads `0x010546e0` = -2147483648 / -0, `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `couldn't find component with id:`
 
 reads `0x01204b30`, `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentGetEntity`  
 `0x007a0060` &middot; 810 instructions &middot; enforces >= 1 arg &middot; returns 1
@@ -1065,7 +1065,7 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string|nil`
 
@@ -1075,7 +1075,7 @@ Runtime messages:
 
 reads `0x00fe4840` = 40, `0x00ff8670` = 8236, `0x01019b14` = ) - , `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentGetTags`  
 `0x0079c970` &middot; 1103 instructions &middot; enforces >= 1 arg &middot; returns 1
@@ -1112,13 +1112,13 @@ reads `0x00fe3c84`, `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string|nil`
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentGetValue2`  
 `0x0079d240` &middot; 1132 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -1126,7 +1126,7 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | (unnamed) | - | `lua_tointeger` | - |
-| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `ComponentGetValue2`
@@ -1134,7 +1134,7 @@ Runtime messages:
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentGetValueBool`  
 `0x007981f0` &middot; 930 instructions &middot; enforces >= 2 args &middot; returns 1
@@ -1144,13 +1144,13 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `bool|nil`
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentGetValueFloat`  
 `0x00798940` &middot; 962 instructions &middot; enforces >= 2 args &middot; returns 1
@@ -1160,13 +1160,13 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `variable_name` | `string` | `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `variable_name` | `string` | `lua_tolstring` | -<br>becomes `""` |
 
 Returns `number|nil`
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentGetValueInt`  
 `0x007985a0` &middot; 927 instructions &middot; enforces >= 2 args &middot; returns 1
@@ -1176,13 +1176,13 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `int|nil`
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentGetValueVector2`  
 `0x00798d10` &middot; 946 instructions &middot; enforces >= 2 args &middot; returns 2
@@ -1192,13 +1192,13 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `variable_name` | `string` | `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `variable_name` | `string` | `lua_tolstring` | -<br>becomes `""` |
 
 Returns `x:number,y:number|nil`
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentGetVector`  
 `0x0079f740` &middot; 1215 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -1208,8 +1208,8 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `array_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `type_stored_in_vector` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `array_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `type_stored_in_vector` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `{int|number|string}|nil`
 
@@ -1220,7 +1220,7 @@ Runtime messages:
 
 reads `0x00fe4038` = int, `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentGetVectorSize`  
 `0x0079edf0` &middot; 1179 instructions &middot; enforces >= 3 args &middot; returns 1
@@ -1230,8 +1230,8 @@ reads `0x00fe4038` = int, `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `array_member_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `type_stored_in_vector` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `array_member_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `type_stored_in_vector` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `int`
 
@@ -1242,7 +1242,7 @@ Runtime messages:
 
 reads `0x00fe4038` = int, `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentGetVectorValue`  
 `0x0079f290` &middot; 1197 instructions &middot; enforces >= 4 args &middot; returns nothing
@@ -1252,8 +1252,8 @@ reads `0x00fe4038` = int, `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `array_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `type_stored_in_vector` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `array_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `type_stored_in_vector` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 4 | `index` | `int` | `lua_tointeger` | - |
 
 Returns `int|number|string|nil`
@@ -1265,7 +1265,7 @@ Runtime messages:
 
 reads `0x00fe4038` = int, `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentHasTag`  
 `0x0079cdc0` &middot; 1149 instructions &middot; enforces >= 2 args &middot; returns 1
@@ -1273,7 +1273,7 @@ reads `0x00fe4038` = int, `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `bool`
 
@@ -1282,7 +1282,7 @@ Runtime messages:
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentObjectGetMembers`  
 `0x007a0770` &middot; 1487 instructions &middot; enforces >= 2 args &middot; returns 1
@@ -1292,7 +1292,7 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `object_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `object_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `{string-string}|nil`
 
@@ -1301,7 +1301,7 @@ Runtime messages:
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentObjectGetValue`  
 `0x0079b550` &middot; 1377 instructions &middot; enforces >= 3 args &middot; returns 1
@@ -1311,8 +1311,8 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `object_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `object_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string|nil`
 
@@ -1321,7 +1321,7 @@ Runtime messages:
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentObjectGetValue2`  
 `0x0079dbe0` &middot; 1266 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -1329,8 +1329,8 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | (unnamed) | - | `lua_tointeger` | - |
-| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `ComponentObjectGetValue2`
@@ -1338,7 +1338,7 @@ Runtime messages:
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentObjectSetValue`  
 `0x0079bac0` &middot; 1457 instructions &middot; enforces >= 4 args &middot; returns nothing
@@ -1348,16 +1348,16 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `object_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 4 | `value` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `object_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 4 | `value` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `isn't a MetaObject or doesn't exist`
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentObjectSetValue2`  
 `0x0079e0e0` &middot; 1271 instructions &middot; enforces >= 4 args &middot; returns nothing
@@ -1365,8 +1365,8 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | (unnamed) | - | `lua_tointeger` | - |
-| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `ComponentObjectSetValue2`
@@ -1374,7 +1374,7 @@ Runtime messages:
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentRemoveTag`  
 `0x0079c500` &middot; 1122 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -1382,14 +1382,14 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `couldn't find component with id:`
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentSetMetaCustom`  
 `0x0079a4b0` &middot; 1955 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -1397,8 +1397,8 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | (unnamed) | - | `lua_tointeger` | - |
-| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `couldn't find component with id:`
@@ -1406,7 +1406,7 @@ Runtime messages:
 
 reads `0x00ff8670` = 8236, `0x01019b14` = ) - , `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentSetValue`  
 `0x007990d0` &middot; 1253 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -1416,15 +1416,15 @@ reads `0x00ff8670` = 8236, `0x01019b14` = ) - , `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `value` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `value` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `couldn't find component with id:`
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentSetValue2`  
 `0x0079d6b0` &middot; 1315 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -1432,7 +1432,7 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | (unnamed) | - | `lua_tointeger` | - |
-| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `, ... ) - couldn't find component with id:`
@@ -1440,7 +1440,7 @@ Runtime messages:
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentSetValueValueRange`  
 `0x00799ac0` &middot; 1267 instructions &middot; enforces >= 4 args &middot; returns nothing
@@ -1450,7 +1450,7 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `min` | `number` | `lua_tonumber` | - |
 | 4 | `max` | `number` | `lua_tonumber` | - |
 
@@ -1459,7 +1459,7 @@ Runtime messages:
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentSetValueValueRangeInt`  
 `0x00799fc0` &middot; 1253 instructions &middot; enforces >= 4 args &middot; returns nothing
@@ -1469,7 +1469,7 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `min` | `number` | `lua_tointeger` | - |
 | 4 | `max` | `number` | `lua_tointeger` | - |
 
@@ -1478,7 +1478,7 @@ Runtime messages:
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ComponentSetValueVector2`  
 `0x007995c0` &middot; 1267 instructions &middot; enforces >= 4 args &middot; returns nothing
@@ -1488,7 +1488,7 @@ reads `0x01208018`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `component_id` | `int` | `lua_tointeger` | - |
-| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `variable_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `x` | `number` | `lua_tonumber` | - |
 | 4 | `y` | `number` | `lua_tonumber` | - |
 
@@ -1497,7 +1497,7 @@ Runtime messages:
 
 reads `0x01208018`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GetUpdatedComponentID`  
 `0x007a1320` &middot; 716 instructions &middot; enforces >= 0 args &middot; returns 1
@@ -1515,11 +1515,11 @@ reads `0x01208020`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `flag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `flag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameClearOrbsFoundThisRun`  
 `0x007ab8b0` &middot; 690 instructions &middot; enforces >= 0 args &middot; returns nothing
@@ -1533,7 +1533,7 @@ reads `0x01208020`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `x` | `number` | `lua_tonumber` | - |
 | 3 | `y` | `number` | `lua_tonumber` | - |
 | 4 | `how_many` | `int` | `lua_tointeger` | - |
@@ -1553,14 +1553,14 @@ writes `0x0120741c`, `0x0122374c` &middot; reads `0x01053c18` = 1084227584 / 5, 
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameCreateParticle`  
 `0x007b3120` &middot; 1436 instructions &middot; enforces >= 7 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `x` | `number` | `lua_tonumber` | - |
 | 3 | `y` | `number` | `lua_tonumber` | - |
 | 4 | `how_many` | `int` | `lua_tointeger` | - |
@@ -1574,14 +1574,14 @@ writes `0x0120741c`, `0x0122374c` &middot; reads `0x01053fa4` = 1191181824 / 327
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameCreateSpriteForXFrames`  
 `0x007b36c0` &middot; 1388 instructions &middot; enforces >= 3 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `x` | `number` | `lua_tonumber` | - |
 | 3 | `y` | `number` | `lua_tonumber` | - |
 | 4 | `centered` | `bool` | `lua_toboolean` | documented `true` |
@@ -1595,7 +1595,7 @@ Runtime messages:
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameCutThroughWorldVertical`  
 `0x007c6f90` &middot; 790 instructions &middot; enforces >= 5 args &middot; returns nothing
@@ -1668,7 +1668,7 @@ reads `0x01204b98`
 |---|-----------|----------|---------|-----------|
 | 1 | `num_particles` | `int` | `lua_tointeger` | - |
 | 2 | `width_outside_camera` | `number` | `lua_tonumber` | - |
-| 3 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 3 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 4 | `velocity_min` | `number` | `lua_tonumber` | - |
 | 5 | `velocity_max` | `number` | `lua_tonumber` | - |
 | 6 | `gravity` | `number` | `lua_tonumber` | - |
@@ -1679,7 +1679,7 @@ reads `0x01205010`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 3) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 3) that is missing or not a string is replaced by an empty string, and a `param 3 wasn't a string, string was expected` warning is logged.
 
 #### `GameEntityPlaySound`  
 `0x007d75b0` &middot; 1189 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -1689,7 +1689,7 @@ reads `0x01205010`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `event_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `event_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `couldn't find entity with id:`
@@ -1698,7 +1698,7 @@ reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GameEntityPlaySoundLoop`  
 `0x007d7a90` &middot; 1178 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -1708,7 +1708,7 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity` | `int` | `lua_tointeger` | - |
-| 2 | `component_tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `component_tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `intensity` | `number` | `lua_tonumber` | - |
 | 4 | `intensity2` | `number` | `lua_tonumber` | documented `0` |
 
@@ -1719,7 +1719,7 @@ reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GameGetAllInventoryItems`  
 `0x007b04e0` &middot; 1229 instructions &middot; enforces >= 1 arg &middot; returns nothing
@@ -1824,7 +1824,7 @@ Returns `int`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `game_effect_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `game_effect_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `component_id:int`
 
@@ -1835,7 +1835,7 @@ writes `0x01152ff0` = 1 &middot; reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GameGetGameEffectCount`  
 `0x007b7560` &middot; 1220 instructions &middot; enforces >= 2 args &middot; returns 1
@@ -1843,7 +1843,7 @@ writes `0x01152ff0` = 1 &middot; reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `game_effect_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `game_effect_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `int`
 
@@ -1854,7 +1854,7 @@ reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GameGetIsGamepadConnected`  
 `0x007aa410` &middot; 728 instructions &middot; enforces >= 0 args &middot; returns 1
@@ -2011,24 +2011,24 @@ writes `0x01204bd0`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameHasFlagRun`  
 `0x007d64b0` &middot; 832 instructions &middot; enforces >= 1 arg &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `flag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `flag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `bool`
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameIsBetaBuild`  
 `0x007e3f30` &middot; 723 instructions &middot; enforces >= 0 args &middot; returns 1
@@ -2130,9 +2130,9 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `priority` | `int` | `lua_tointeger` | - |
-| 4 | `followup_name` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 4 | `followup_name` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 | 5 | `followup_priority` | `int` | `lua_tointeger` | documented `0` |
 
 Runtime messages:
@@ -2142,15 +2142,15 @@ reads `0x00fe3c84`, `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GamePlaySound`  
 `0x007d7190` &middot; 1049 instructions &middot; enforces >= 4 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `bank_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | `event_path` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `bank_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | `event_path` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `x` | `number` | `lua_tonumber` | - |
 | 4 | `y` | `number` | `lua_tonumber` | - |
 
@@ -2158,7 +2158,7 @@ reads `0x00fe3c84`, `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GamePosToPhysicsPos`  
 `0x007d3d50` &middot; 880 instructions &middot; enforces >= 1 arg &middot; returns 2
@@ -2177,28 +2177,28 @@ reads `0x01207b28`, `0x01207b30`, `0x01207b38`, `0x01207b40`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `log_line` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `log_line` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GamePrintImportant`  
 `0x007be6b0` &middot; 1104 instructions &middot; enforces >= 1 arg &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `title` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | `description` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
-| 3 | `ui_custom_decoration_file` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 1 | `title` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | `description` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
+| 3 | `ui_custom_decoration_file` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 reads `0x00fe3c84`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameRegenItemAction`  
 `0x007aee00` &middot; 1065 instructions &middot; enforces >= 1 arg &middot; returns nothing
@@ -2247,11 +2247,11 @@ reads `0x01204b98`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `flag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `flag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameScreenshake`  
 `0x007a5a50` &middot; 834 instructions &middot; enforces >= 1 arg &middot; returns nothing
@@ -2311,7 +2311,7 @@ Returns `pos_valid:bool`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `parameter_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `parameter_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `x` | `number` | `lua_tonumber` | - |
 | 3 | `y` | `number` | `lua_tonumber` | - |
 | 4 | `z` | `number` | `lua_tonumber` | - |
@@ -2321,7 +2321,7 @@ Returns `pos_valid:bool`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameSetPostFxTextureParameter`  
 `0x007d85a0` &middot; 1762 instructions &middot; enforces >= 4 args &middot; returns nothing
@@ -2332,8 +2332,8 @@ Returns `pos_valid:bool`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `parameter_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | `texture_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `parameter_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | `texture_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `filtering_mode` | `int` | `lua_tointeger` | - |
 | 4 | `wrapping_mode` | `int` | `lua_tointeger` | - |
 | 5 | `update_texture` | `bool` | `lua_toboolean` | documented `false` |
@@ -2348,7 +2348,7 @@ reads `0x00000001`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameShootProjectile`  
 `0x007b3c30` &middot; 1009 instructions &middot; enforces >= 6 args &middot; returns nothing
@@ -2375,10 +2375,10 @@ reads `0x01204b98`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | `param0` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
-| 3 | `param1` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
-| 4 | `param2` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | `param0` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
+| 3 | `param1` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
+| 4 | `param2` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 Returns `string`
 
@@ -2387,22 +2387,22 @@ Runtime messages:
 
 reads `0x00fe3c84`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameTextGetTranslatedOrNot`  
 `0x007d8ca0` &middot; 876 instructions &middot; enforces >= 1 arg &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `text_or_key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `text_or_key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string`
 
 
 
-> Runs the label through `FUN_0084b3a0`: a label starting with `$` is looked up in `data/translations/common.csv`, and a label with **no** `$` is replaced with an empty string. A literal like `"Play"` therefore renders nothing — pass `"$some_key"`.
+> Runs the label through `FUN_0084b3a0`: a label starting with `$` is looked up in `data/translations/common.csv`, and a label with **no** `$` is used as written, so a literal like `"Play"` shows `Play`.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameTriggerGameOver`  
 `0x007b16d0` &middot; 700 instructions &middot; enforces >= 0 args &middot; returns nothing
@@ -2416,20 +2416,20 @@ reads `0x01204bc0`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameTriggerMusicEvent`  
 `0x007d67f0` &middot; 886 instructions &middot; enforces >= 4 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `event_path` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `event_path` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `can_be_faded` | `bool` | `lua_toboolean` | - |
 | 3 | `x` | `number` | `lua_tonumber` | - |
 | 4 | `y` | `number` | `lua_tonumber` | - |
@@ -2438,7 +2438,7 @@ reads `0x011549f0`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameTriggerMusicFadeOutAndDequeueAll`  
 `0x007d6e90` &middot; 758 instructions &middot; enforces >= 0 args &middot; returns nothing
@@ -2460,13 +2460,13 @@ reads `0x01053780` = 1065353216 / 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `parameter_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `parameter_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GameVecToPhysicsVec`  
 `0x007d4430` &middot; 864 instructions &middot; enforces >= 1 arg &middot; returns 2
@@ -2587,10 +2587,10 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 | 1 | `gui` | `obj` | `lua_type`, `lua_topointer` | - |
 | 2 | `id` | `int` | `lua_tonumber`, `lua_tointeger` | - |
 | 3 | `x` | `number` | `lua_tonumber` | - |
-| 4 | `y` | `number` | `lua_type`, `lua_isstring`, `lua_tolstring`, `lua_tonumber` | -<br>hardcoded *this function's own usage string* |
-| 5 | `text` | `string` | `lua_tointeger`, `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 4 | `y` | `number` | `lua_type`, `lua_isstring`, `lua_tolstring`, `lua_tonumber` | -<br>becomes `""` |
+| 5 | `text` | `string` | `lua_tointeger`, `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 6 | `scale` | `number` | `lua_tonumber` | documented `1` |
-| 7 | `font` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 7 | `font` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 | 8 | `font_is_pixel_font` | `bool` | `lua_toboolean` | documented `true` |
 
 Returns `clicked:bool,right_clicked:bool`
@@ -2601,7 +2601,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 4) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 4) that is missing or not a string is replaced by an empty string, and a `param 4 wasn't a string, string was expected` warning is logged.
 
 #### `GuiColorSetForNextWidget`  
 `0x007daf40` &middot; 878 instructions &middot; enforces >= 5 args &middot; returns nothing
@@ -2654,8 +2654,8 @@ Runtime messages:
 | 4 | `size_min_y` | `number` | `lua_tonumber` | documented `0` |
 | 5 | `mirrorize_over_x_axis` | `bool` | `lua_toboolean` | documented `false` |
 | 6 | `x_axis` | `number` | `lua_tonumber` | documented `0` |
-| 7 | `sprite_filename` | `string` | `lua_isstring`, `lua_tolstring` | documented `"data/ui_gfx/decorations/9piece0_gray.png"`<br>hardcoded *this function's own usage string* |
-| 8 | `sprite_highlight_filename` | `string` | `lua_isstring`, `lua_tolstring` | documented `"data/ui_gfx/decorations/9piece0_gray.png"`<br>hardcoded *this function's own usage string* |
+| 7 | `sprite_filename` | `string` | `lua_isstring`, `lua_tolstring` | documented `"data/ui_gfx/decorations/9piece0_gray.png"`<br>becomes `""` |
+| 8 | `sprite_highlight_filename` | `string` | `lua_isstring`, `lua_tolstring` | documented `"data/ui_gfx/decorations/9piece0_gray.png"`<br>becomes `""` |
 
 Runtime messages:
 - `data/ui_gfx/decorations/9piece0_gray.png`
@@ -2666,7 +2666,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 7) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 7) that is missing or not a string is replaced by an empty string, and a `param 7 wasn't a string, string was expected` warning is logged.
 
 #### `GuiEndScrollContainer`  
 `0x007e12e0` &middot; 736 instructions &middot; enforces >= 1 arg &middot; returns nothing
@@ -2687,7 +2687,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `gui` | `obj` | `lua_type` | - |
-| 2 | `image_filename` | `string` | `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `image_filename` | `string` | `lua_tolstring` | -<br>becomes `""` |
 | 3 | `scale` | `number` | - | documented `1` |
 
 Returns `width:number,height:number`
@@ -2696,7 +2696,7 @@ reads `0x01053780` = 1065353216 / 1
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GuiGetPreviousWidgetInfo`  
 `0x007e3b40` &middot; 1007 instructions &middot; enforces >= 1 arg &middot; returns 11
@@ -2736,10 +2736,10 @@ reads `0x01221bc0`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `gui` | `obj` | `lua_type` | - |
-| 2 | `text` | `string` | `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `text` | `string` | `lua_tolstring` | -<br>becomes `""` |
 | 3 | `scale` | `number` | - | documented `1` |
 | 4 | `line_spacing` | `number` | - | documented `2` |
-| 5 | `font` | `string` | `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 5 | `font` | `string` | `lua_tolstring` | documented `""`<br>becomes `""` |
 | 6 | `font_is_pixel_font` | `bool` | - | documented `true` |
 
 Returns `width:number,height:number`
@@ -2748,7 +2748,7 @@ reads `0x01053780` = 1065353216 / 1, `0x010539f8` = 1073741824 / 2
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GuiIdPop`  
 `0x007dbf00` &middot; 756 instructions &middot; enforces >= 1 arg &middot; returns nothing
@@ -2785,13 +2785,13 @@ reads `0x01053780` = 1065353216 / 1, `0x010539f8` = 1073741824 / 2
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `gui` | `obj` | `lua_type` | - |
-| 2 | `str` | `string` | `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `str` | `string` | `lua_tolstring` | -<br>becomes `""` |
 
 
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GuiImage`  
 `0x007dd900` &middot; 1701 instructions &middot; enforces >= 5 args &middot; returns nothing
@@ -2804,7 +2804,7 @@ reads `0x01053780` = 1065353216 / 1, `0x010539f8` = 1073741824 / 2
 | 2 | `id` | `int` | `lua_tointeger` | - |
 | 3 | `x` | `number` | `lua_tonumber` | - |
 | 4 | `y` | `number` | `lua_tonumber` | - |
-| 5 | `sprite_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 5 | `sprite_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 6 | `alpha` | `number` | `lua_tonumber` | documented `1` |
 | 7 | `scale` | `number` | `lua_tonumber` | documented `1` |
 | 8 | `scale_y` | `number` | `lua_tonumber` | documented `0` |
@@ -2818,7 +2818,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 5) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 5) that is missing or not a string is replaced by an empty string, and a `param 5 wasn't a string, string was expected` warning is logged.
 
 #### `GuiImageButton`  
 `0x007dec70` &middot; 1493 instructions &middot; enforces >= 6 args &middot; returns 2
@@ -2829,8 +2829,8 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 | 2 | `id` | `int` | `lua_tointeger` | - |
 | 3 | `x` | `number` | `lua_tonumber` | - |
 | 4 | `y` | `number` | `lua_tonumber` | - |
-| 5 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 6 | `sprite_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 5 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 6 | `sprite_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `clicked:bool,right_clicked:bool`
 
@@ -2840,7 +2840,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8`
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 5) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 5) that is missing or not a string is replaced by an empty string, and a `param 5 wasn't a string, string was expected` warning is logged.
 
 #### `GuiImageNinePiece`  
 `0x007ddfb0` &middot; 1571 instructions &middot; enforces >= 6 args &middot; returns nothing
@@ -2854,8 +2854,8 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8`
 | 5 | `width` | `number` | `lua_tonumber` | - |
 | 6 | `height` | `number` | `lua_tonumber` | - |
 | 7 | `alpha` | `number` | `lua_tonumber` | documented `1` |
-| 8 | `sprite_filename` | `string` | `lua_isstring`, `lua_tolstring` | documented `"data/ui_gfx/decorations/9piece0_gray.png"`<br>hardcoded *this function's own usage string* |
-| 9 | `sprite_highlight_filename` | `string` | `lua_isstring`, `lua_tolstring` | documented `"data/ui_gfx/decorations/9piece0_gray.png"`<br>hardcoded *this function's own usage string* |
+| 8 | `sprite_filename` | `string` | `lua_isstring`, `lua_tolstring` | documented `"data/ui_gfx/decorations/9piece0_gray.png"`<br>becomes `""` |
+| 9 | `sprite_highlight_filename` | `string` | `lua_isstring`, `lua_tolstring` | documented `"data/ui_gfx/decorations/9piece0_gray.png"`<br>becomes `""` |
 
 Runtime messages:
 - `data/ui_gfx/decorations/9piece0_gray.png`
@@ -2866,7 +2866,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 8) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 8) that is missing or not a string is replaced by an empty string, and a `param 8 wasn't a string, string was expected` warning is logged.
 
 #### `GuiLayoutAddHorizontalSpacing`  
 `0x007e1e90` &middot; 791 instructions &middot; enforces >= 1 arg &middot; returns nothing
@@ -3033,7 +3033,7 @@ reads `0x01053464` = 1008981770 / 0.01, `0x01221bcc`, `0x01221bd0`
 | 2 | `id` | `int` | - | - |
 | 3 | `x` | `number` | `lua_tonumber` | - |
 | 4 | `y` | `number` | `lua_tonumber` | - |
-| 5 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 5 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 6 | `value` | `number` | - | - |
 | 7 | `value_min` | `number` | `lua_tonumber` | - |
 | 8 | `value_max` | `number` | `lua_tonumber` | - |
@@ -3055,7 +3055,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 5) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 5) that is missing or not a string is replaced by an empty string, and a `param 5 wasn't a string, string was expected` warning is logged.
 
 #### `GuiStartFrame`  
 `0x007d9f80` &middot; 756 instructions &middot; enforces >= 1 arg &middot; returns nothing
@@ -3076,9 +3076,9 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 | 1 | `gui` | `obj` | `lua_type`, `lua_topointer` | - |
 | 2 | `x` | `number` | `lua_tonumber` | - |
 | 3 | `y` | `number` | `lua_tonumber` | - |
-| 4 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 4 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 5 | `scale` | `number` | `lua_tonumber` | documented `1` |
-| 6 | `font` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 6 | `font` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 | 7 | `font_is_pixel_font` | `bool` | `lua_toboolean` | documented `true` |
 
 writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &middot; reads `0x01053780` = 1065353216 / 1
@@ -3087,7 +3087,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 4) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 4) that is missing or not a string is replaced by an empty string, and a `param 4 wasn't a string, string was expected` warning is logged.
 
 #### `GuiTextCentered`  
 `0x007dd400` &middot; 1269 instructions &middot; enforces >= 4 args &middot; returns nothing
@@ -3099,7 +3099,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 | 1 | `gui` | `obj` | `lua_type`, `lua_topointer` | - |
 | 2 | `x` | `number` | `lua_tonumber` | - |
 | 3 | `y` | `number` | `lua_tonumber` | - |
-| 4 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 4 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8`
 
@@ -3107,7 +3107,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8`
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 4) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 4) that is missing or not a string is replaced by an empty string, and a `param 4 wasn't a string, string was expected` warning is logged.
 
 #### `GuiTextInput`  
 `0x007df8d0` &middot; 1677 instructions &middot; enforces >= 7 args &middot; returns 1
@@ -3120,10 +3120,10 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8`
 | 2 | `id` | `int` | `lua_tointeger` | - |
 | 3 | `x` | `number` | `lua_tonumber` | - |
 | 4 | `y` | `number` | `lua_tonumber` | - |
-| 5 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 5 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 6 | `width` | `number` | `lua_tonumber` | - |
 | 7 | `max_length` | `int` | `lua_tointeger` | - |
-| 8 | `allowed_characters` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 8 | `allowed_characters` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 Returns `new_text`
 
@@ -3136,7 +3136,7 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 5) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 5) that is missing or not a string is replaced by an empty string, and a `param 5 wasn't a string, string was expected` warning is logged.
 
 #### `GuiTooltip`  
 `0x007e08d0` &middot; 1243 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -3144,8 +3144,8 @@ writes `0x01154b98`, `0x01154b9c`, `0x01154ba0`, `0x01154ba4`, `0x01154ba8` &mid
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `gui` | `obj` | `lua_type`, `lua_topointer` | - |
-| 2 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `description` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `text` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `description` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `data/ui_gfx/decorations/9piece0_gray.png`
@@ -3154,7 +3154,7 @@ writes `0x01154bac` = 256 &middot; reads `0x01154b98`
 
 > Validates the `gui` handle; a stale handle makes the whole call a **silent no-op** with no log line.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GuiZSet`  
 `0x007db2b0` &middot; 762 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -3194,7 +3194,7 @@ writes `0x01154bac` = 256 &middot; reads `0x01154b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | - | - |
-| 2 | `material` | `string` | - | -<br>hardcoded *this function's own usage string* |
+| 2 | `material` | `string` | - | -<br>becomes `""` |
 | 3 | `offset_x` | `number` | - | - |
 | 4 | `offset_y` | `number` | - | - |
 | 5 | `width` | `int` | - | - |
@@ -3211,7 +3211,7 @@ reads `0x00ff8670` = 8236, `0x010145f8` = wood, `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `PhysicsAddBodyImage`  
 `0x007cbbf0` &middot; 2265 instructions &middot; enforces >= 2 args &middot; returns 1
@@ -3221,13 +3221,13 @@ reads `0x00ff8670` = 8236, `0x010145f8` = wood, `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | - | - |
-| 2 | `image_file` | `string` | - | -<br>hardcoded *this function's own usage string* |
-| 3 | `material` | `string` | - | documented `""`<br>hardcoded *this function's own usage string* |
+| 2 | `image_file` | `string` | - | -<br>becomes `""` |
+| 3 | `material` | `string` | - | documented `""`<br>becomes `""` |
 | 4 | `offset_x` | `number` | - | documented `0` |
 | 5 | `offset_y` | `number` | - | documented `0` |
 | 6 | `centered` | `bool` | - | documented `false` |
 | 7 | `is_circle` | `bool` | - | documented `false` |
-| 8 | `material_image_file` | `string` | - | documented `""`<br>hardcoded *this function's own usage string* |
+| 8 | `material_image_file` | `string` | - | documented `""`<br>becomes `""` |
 | 9 | `use_image_as_colors` | `bool` | - | documented `true` |
 
 Returns `int_body_id`
@@ -3240,7 +3240,7 @@ reads `0x00fe3c84`, `0x010145f8` = wood, `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `PhysicsAddJoint`  
 `0x007ccc90` &middot; 1343 instructions &middot; enforces >= 3 args &middot; returns 1
@@ -3254,7 +3254,7 @@ reads `0x00fe3c84`, `0x010145f8` = wood, `0x01204b98`
 | 3 | `body_id1` | `int` | `lua_tointeger` | - |
 | 4 | `offset_x` | `number` | `lua_tonumber` | - |
 | 5 | `offset_y` | `number` | `lua_tonumber` | - |
-| 6 | `joint_type` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 6 | `joint_type` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 7 | (unnamed) | - | `lua_toboolean` | - |
 
 Returns `int|nil`
@@ -3268,7 +3268,7 @@ reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 6) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 6) that is missing or not a string is replaced by an empty string, and a `param 6 wasn't a string, string was expected` warning is logged.
 
 #### `PhysicsApplyForce`  
 `0x007cd1d0` &middot; 1045 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -3703,7 +3703,7 @@ writes `0x012236e8`, `0x012236f4`, `0x012236f8`, `0x01223708`, `0x012236e0`, `0x
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `count` | `int` | `lua_tointeger` | - |
 
 Runtime messages:
@@ -3713,7 +3713,7 @@ reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `CellFactory_GetAllFires`  
 `0x007ad1e0` &middot; 855 instructions &middot; enforces >= 0 args &middot; returns via a helper
@@ -3835,7 +3835,7 @@ Runtime messages:
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `int`
 
@@ -3843,7 +3843,7 @@ Returns `int`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `CellFactory_GetUIName`  
 `0x007ac4b0` &middot; 772 instructions &middot; enforces >= 1 arg &middot; returns 1
@@ -3866,7 +3866,7 @@ reads `0x00fe3c84`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `material_id` | `int` | `lua_tointeger` | - |
-| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `tag` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `{bool}`
 
@@ -3877,7 +3877,7 @@ Runtime messages:
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `ConvertMaterialEverywhere`  
 `0x007e59d0` &middot; 893 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -3938,7 +3938,7 @@ reads `0x01204b98`
 |---|-----------|----------|---------|-----------|
 | 1 | `world_pos_x` | `number` | `lua_tonumber` | - |
 | 2 | `world_pos_y` | `number` | `lua_tonumber` | - |
-| 3 | `image_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 3 | `image_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 4 | `max_durability` | `int` | `lua_tointeger` | documented `2147483647` |
 
 Runtime messages:
@@ -3946,7 +3946,7 @@ Runtime messages:
 
 reads `0x0105361c` = 1056964608 / 0.5, `0x0120866c`
 
-> A missing/invalid string argument (argument 3) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 3) that is missing or not a string is replaced by an empty string, and a `param 3 wasn't a string, string was expected` warning is logged.
 
 #### `RemoveMaterialInventoryMaterial`  
 `0x007a4ff0` &middot; 1340 instructions &middot; enforces >= 1 arg &middot; returns nothing
@@ -3956,7 +3956,7 @@ reads `0x0105361c` = 1056964608 / 0.5, `0x0120866c`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 2 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 Runtime messages:
 - `couldn't find entity with id:`
@@ -3965,7 +3965,7 @@ reads `0x00fe3c84`, `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 ### World & loading (11)
 
@@ -3989,7 +3989,7 @@ Returns `x:number,y:number`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `background_file` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `background_file` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `x` | `number` | `lua_tointeger` | - |
 | 3 | `y` | `number` | `lua_tointeger` | - |
 | 4 | `background_z_index` | `number` | `lua_tonumber` | documented `40.0` |
@@ -3999,14 +3999,14 @@ reads `0x01053df0` = 1109393408 / 40
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `LoadEntityToStash`  
 `0x007a4660` &middot; 1195 instructions &middot; enforces >= 2 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `entity_file` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `entity_file` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `stash_entity_id` | `int` | `lua_tointeger` | - |
 
 Runtime messages:
@@ -4016,7 +4016,7 @@ writes `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `LoadGameEffectEntityTo`  
 `0x007b7a30` &middot; 1199 instructions &middot; enforces >= 2 args &middot; returns 1 (of 2 push sites)
@@ -4024,7 +4024,7 @@ writes `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `game_effect_entity_file` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `game_effect_entity_file` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `effect_entity_id:int`
 
@@ -4035,18 +4035,18 @@ reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `LoadPixelScene`  
 `0x007b1990` &middot; 1672 instructions &middot; enforces >= 4 args &middot; returns via a helper
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `materials_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | `colors_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `materials_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | `colors_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `x` | `number` | `lua_tointeger` | - |
 | 4 | `y` | `number` | `lua_tointeger` | - |
-| 5 | `background_file` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 5 | `background_file` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 6 | `skip_biome_checks` | `bool` | `lua_toboolean` | documented `false` |
 | 7 | `skip_edge_textures` | `bool` | `lua_toboolean` | documented `false` |
 | 8 | `color_to_material_table` | `{string-string}` | `lua_type` | documented `{}` |
@@ -4062,7 +4062,7 @@ Runtime messages:
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 > Returns through a push-helper rather than a `lua_push*` call, so the return value does not appear in the decompiled body.
 
@@ -4073,10 +4073,10 @@ Runtime messages:
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `pos_x` | `float` | `lua_tonumber` | - |
 | 3 | `pos_y` | `float` | `lua_tonumber` | - |
-| 4 | `material` | `string` | `lua_isstring`, `lua_tolstring` | documented `"meat"`<br>hardcoded *this function's own usage string* |
+| 4 | `material` | `string` | `lua_isstring`, `lua_tolstring` | documented `"meat"`<br>becomes `""` |
 | 5 | `scale_x` | `float` | `lua_tonumber` | documented `1` |
 | 6 | `impulse_x` | `float` | `lua_tonumber` | documented `0` |
 | 7 | `impulse_y` | `float` | `lua_tonumber` | documented `0` |
@@ -4085,7 +4085,7 @@ reads `0x00ff9e80` = meat, `0x01053780` = 1065353216 / 1
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `RemovePixelSceneBackgroundSprite`  
 `0x007b23e0` &middot; 872 instructions &middot; enforces >= 3 args &middot; returns 1
@@ -4094,7 +4094,7 @@ reads `0x00ff9e80` = meat, `0x01053780` = 1065353216 / 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `background_file` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `background_file` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `x` | `number` | `lua_tointeger` | - |
 | 3 | `y` | `number` | `lua_tointeger` | - |
 
@@ -4104,7 +4104,7 @@ Returns `bool -`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `RemovePixelSceneBackgroundSprites`  
 `0x007b2750` &middot; 768 instructions &middot; enforces >= 4 args &middot; returns nothing
@@ -4177,13 +4177,13 @@ reads `0x01204b98`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `bool`
 
 reads `0x01221bc0`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `ModImageGetPixel`  
 `0x0082f8b0` &middot; 800 instructions &middot; enforces >= 3 args &middot; returns 1
@@ -4213,7 +4213,7 @@ reads `0x01207d1c`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `id:int,w:int,h:int`
 
@@ -4223,7 +4223,7 @@ Runtime messages:
 
 reads `0x0100e398` = png
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `ModImageSetPixel`  
 `0x0082fbd0` &middot; 786 instructions &middot; enforces >= 4 args &middot; returns nothing
@@ -4249,13 +4249,13 @@ reads `0x01207d1c`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string`
 
 reads `0x00fe3c84`, `0x01207e9c`, `0x01207ea0`, `0x01221bc0`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `ModLuaFileGetAppends`  
 `0x0082d5f0` &middot; 922 instructions &middot; enforces >= 1 arg &middot; returns 1 (of 0 push sites)
@@ -4264,13 +4264,13 @@ reads `0x00fe3c84`, `0x01207e9c`, `0x01207ea0`, `0x01221bc0`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `{string}`
 
 reads `0x01207ed0`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 > Returns through a push-helper rather than a `lua_push*` call, so the return value does not appear in the decompiled body.
 
@@ -4296,7 +4296,7 @@ Returns `{string}`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string`
 
@@ -4305,7 +4305,7 @@ Runtime messages:
 
 reads `0x00fe3c84`, `0x01221bc0`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `ModTextFileWhoSetContent`  
 `0x0082e970` &middot; 1142 instructions &middot; enforces >= 1 arg &middot; returns 1
@@ -4314,13 +4314,13 @@ reads `0x00fe3c84`, `0x01221bc0`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string`
 
 reads `0x00fe3c84`, `0x01207e9c`, `0x01207ec0`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 ### Mod settings (7)
 
@@ -4331,13 +4331,13 @@ reads `0x00fe3c84`, `0x01207e9c`, `0x01207ec0`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `bool|number|string|nil`
 
 reads `0x01207ef4`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `ModSettingGetAtIndex`  
 `0x007e9490` &middot; 1061 instructions &middot; enforces >= 0 args &middot; returns 3 (of 7 push sites)
@@ -4372,26 +4372,26 @@ reads `0x01207ef8`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `bool|number|string|nil`
 
 reads `0x01207ef4`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `ModSettingRemove`  
 `0x007e8e30` &middot; 899 instructions &middot; enforces >= 1 arg &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `was_removed:bool`
 
 writes `0x01207efc` &middot; reads `0x01207ef4`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `ModSettingSet`  
 `0x007e7df0` &middot; 1395 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -4400,7 +4400,7 @@ writes `0x01207efc` &middot; reads `0x01207ef4`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `value` | `bool|number|string` | `lua_type`, `lua_toboolean`, `lua_tonumber`, `lua_tolstring` | - |
 
 Runtime messages:
@@ -4408,7 +4408,7 @@ Runtime messages:
 
 writes `0x01207efc` &middot; reads `0x01207ef4`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `ModSettingSetNextValue`  
 `0x007e8770` &middot; 1716 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -4417,7 +4417,7 @@ writes `0x01207efc` &middot; reads `0x01207ef4`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `value` | `bool|number|string` | `lua_type`, `lua_toboolean`, `lua_tonumber`, `lua_tolstring` | - |
 | 3 | `is_default` | `bool` | `lua_toboolean` | - |
 
@@ -4426,7 +4426,7 @@ Runtime messages:
 
 writes `0x01207efc` &middot; reads `0x00000001`, `0x01207ef4`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 ### Mod queries (4)
 
@@ -4437,13 +4437,13 @@ writes `0x01207efc` &middot; reads `0x00000001`, `0x01207ef4`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `boolean`
 
 reads `0x01221bc0`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `ModGetAPIVersion`  
 `0x007e7040` &middot; 711 instructions &middot; enforces >= 0 args &middot; returns 1
@@ -4472,13 +4472,13 @@ Returns `{string}`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `mod_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `mod_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `bool`
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 ### Stats (5)
 
@@ -4487,13 +4487,13 @@ Returns `bool`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string`
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `StatsBiomeReset`  
 `0x007c5930` &middot; 731 instructions &middot; enforces >= 0 args &middot; returns nothing
@@ -4507,26 +4507,26 @@ reads `0x01208848`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string|nil`
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `StatsGlobalGetValue`  
 `0x007c5170` &middot; 992 instructions &middot; enforces >= 1 arg &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string`
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `StatsLogPlayerKill`  
 `0x007c5c10` &middot; 761 instructions &middot; enforces >= 0 args &middot; returns nothing
@@ -4546,61 +4546,61 @@ writes `0x012087f4`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `bool_is_new`
 
 reads `0x012073f4`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GlobalsGetValue`  
 `0x007c35b0` &middot; 1083 instructions &middot; enforces >= 1 arg &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | `default_value` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | `default_value` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 reads `0x00fe3c84`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GlobalsSetValue`  
 `0x007c3200` &middot; 940 instructions &middot; enforces >= 2 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | `value` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | `value` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `HasFlagPersistent`  
 `0x007d5b20` &middot; 841 instructions &middot; enforces >= 1 arg &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `bool`
 
 reads `0x012073f4`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `RemoveFlagPersistent`  
 `0x007d57f0` &middot; 808 instructions &middot; enforces >= 1 arg &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 reads `0x012073f4`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 ### Persistent values (16)
 
@@ -4609,8 +4609,8 @@ reads `0x012073f4`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `BiomeGetValue`
@@ -4620,7 +4620,7 @@ Runtime messages:
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `BiomeMaterialGetValue`  
 `0x007a9a60` &middot; 1729 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -4629,9 +4629,9 @@ Runtime messages:
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `field_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | `material_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `field_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `multiple types|nil`
 
@@ -4643,16 +4643,16 @@ reads `0x00fe4840` = 40, `0x00ff8670` = 8236
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `BiomeMaterialSetValue`  
 `0x007a93a0` &middot; 1724 instructions &middot; enforces >= 4 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `, ... ) - couldn't find biome with filename:`
@@ -4662,16 +4662,16 @@ reads `0x00fe4840` = 40, `0x00ff8670` = 8236
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `BiomeObjectSetValue`  
 `0x007a8500` &middot; 1968 instructions &middot; enforces >= 4 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `, ... ) - couldn't find biome with filename:`
@@ -4682,15 +4682,15 @@ reads `0x00fe4840` = 40, `0x00ff8670` = 8236
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `BiomeSetValue`  
 `0x007a7af0` &middot; 1411 instructions &middot; enforces >= 3 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `, ... ) - couldn't find biome with filename:`
@@ -4700,16 +4700,16 @@ reads `0x00ff8670` = 8236
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `BiomeVegetationSetValue`  
 `0x007a8cb0` &middot; 1758 instructions &middot; enforces >= 4 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | (unnamed) | - | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `, ... ) - couldn't find biome with filename:`
@@ -4719,69 +4719,69 @@ reads `0x00fe4840` = 40, `0x00ff8670` = 8236
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GetValueBool`  
 `0x007a2900` &middot; 1025 instructions &middot; enforces >= 2 args &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | (unnamed) | `default_value` | `lua_toboolean` | - |
 
 reads `0x01208024`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GetValueInteger`  
 `0x007a2160` &middot; 1018 instructions &middot; enforces >= 2 args &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | (unnamed) | `default_value` | `lua_tointeger` | - |
 
 reads `0x01208024`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `GetValueNumber`  
 `0x007a19a0` &middot; 1052 instructions &middot; enforces >= 2 args &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | (unnamed) | `default_value` | - | - |
 
 reads `0x01208024`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `MagicNumbersGetValue`  
 `0x007c39f0` &middot; 913 instructions &middot; enforces >= 1 arg &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string`
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `SessionNumbersGetValue`  
 `0x007c4060` &middot; 913 instructions &middot; enforces >= 1 arg &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `string`
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `SessionNumbersSave`  
 `0x007c47d0` &middot; 762 instructions &middot; enforces >= 0 args &middot; returns nothing
@@ -4797,48 +4797,48 @@ Returns `string`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | `value` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `key` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | `value` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `SetValueBool`  
 `0x007a2560` &middot; 923 instructions &middot; enforces >= 2 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | (unnamed) | `value` | `lua_toboolean` | - |
 
 reads `0x01208024`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `SetValueInteger`  
 `0x007a1dc0` &middot; 918 instructions &middot; enforces >= 2 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | (unnamed) | `value` | `lua_tointeger` | - |
 
 reads `0x01208024`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `SetValueNumber`  
 `0x007a15f0` &middot; 937 instructions &middot; enforces >= 2 args &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | (unnamed) | `key` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | (unnamed) | `value` | `lua_tonumber` | - |
 
 reads `0x01208024`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 ### Streaming (7)
 
@@ -5253,13 +5253,13 @@ Returns `did_hit:bool,hit_x:number,hit_y:number`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `new_herd_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `new_herd_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GetHerdRelation`  
 `0x007bca20` &middot; 799 instructions &middot; enforces >= 2 args &middot; returns 1
@@ -5289,13 +5289,13 @@ Returns `string`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `herd_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `herd_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Returns `int`
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 ### Polymorph (4)
 
@@ -5306,7 +5306,7 @@ Returns `int`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `entity_xml` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `entity_xml` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `is_rare` | `bool` | `lua_toboolean` | documented `false` |
 | 3 | `add_only_one_copy` | `bool` | `lua_toboolean` | documented `true` |
 
@@ -5314,7 +5314,7 @@ reads `0x012094e0`
 
 > **The binary enforces 2 arguments, more than the 1 the signature marks as required** (3 declared). Trust the enforced number.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `PolymorphTableGet`  
 `0x007b8b50` &middot; 754 instructions &middot; enforces >= 0 args &middot; returns via a helper
@@ -5340,13 +5340,13 @@ reads `0x012094e0`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `entity_xml` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `entity_xml` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `from_common_table` | `bool` | `lua_toboolean` | documented `true` |
 | 3 | `from_rare_table` | `bool` | `lua_toboolean` | documented `true` |
 
 reads `0x012094e0`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `PolymorphTableSet`  
 `0x007b8e50` &middot; 906 instructions &middot; enforces >= 1 arg &middot; returns via a helper
@@ -5382,7 +5382,7 @@ reads `0x01221bc0`
 |---|-----------|----------|---------|-----------|
 | 1 | `x` | `number` | `lua_tonumber` | - |
 | 2 | `y` | `number` | `lua_tonumber` | - |
-| 3 | `message` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 3 | `message` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 | 4 | `color_r` | `number` | `lua_tonumber` | documented `1` |
 | 5 | `color_g` | `number` | `lua_tonumber` | documented `0` |
 | 6 | `color_b` | `number` | `lua_tonumber` | documented `0` |
@@ -5391,7 +5391,7 @@ reads `0x01053780` = 1065353216 / 1
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 3) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 3) that is missing or not a string is replaced by an empty string, and a `param 3 wasn't a string, string was expected` warning is logged.
 
 #### `DebugBiomeMapGetFilename`  
 `0x007e4a80` &middot; 997 instructions &middot; enforces >= 0 args &middot; returns 1
@@ -5512,7 +5512,7 @@ Returns `number`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | - | -<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | - | -<br>becomes `""` |
 
 Runtime messages:
 - `BiomeMapLoad - this function will be deprecated in the future! Using it probably causes all kinds of bugs already.`
@@ -5523,7 +5523,7 @@ writes `0x01207f30`, `0x01207f34` &middot; reads `0x0000000f`, `0x01152708` = 11
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `BiomeMapLoadImage`  
 `0x007c8200` &middot; 1232 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -5534,14 +5534,14 @@ writes `0x01207f30`, `0x01207f34` &middot; reads `0x0000000f`, `0x01152708` = 11
 |---|-----------|----------|---------|-----------|
 | 1 | `x` | `int` | `lua_tointeger` | - |
 | 2 | `y` | `int` | `lua_tointeger` | - |
-| 3 | `image_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 3 | `image_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `couldn't load image file:`
 
 reads `0x01204720`
 
-> A missing/invalid string argument (argument 3) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 3) that is missing or not a string is replaced by an empty string, and a `param 3 wasn't a string, string was expected` warning is logged.
 
 #### `BiomeMapLoadImageCropped`  
 `0x007c86d0` &middot; 1334 instructions &middot; enforces >= 7 args &middot; returns nothing
@@ -5552,7 +5552,7 @@ reads `0x01204720`
 |---|-----------|----------|---------|-----------|
 | 1 | `x` | `int` | `lua_tointeger` | - |
 | 2 | `y` | `int` | `lua_tointeger` | - |
-| 3 | `image_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 3 | `image_filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 4 | `image_x` | `int` | `lua_tointeger` | - |
 | 5 | `image_y` | `int` | `lua_tointeger` | - |
 | 6 | `image_w` | `int` | `lua_tointeger` | - |
@@ -5563,19 +5563,19 @@ Runtime messages:
 
 reads `0x01204720`
 
-> A missing/invalid string argument (argument 3) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 3) that is missing or not a string is replaced by an empty string, and a `param 3 wasn't a string, string was expected` warning is logged.
 
 #### `BiomeMapLoad_KeepPlayer`  
 `0x007a71d0` &middot; 1000 instructions &middot; enforces >= 1 arg &middot; returns nothing
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 2 | `pixel_scenes` | `string` | `lua_isstring`, `lua_tolstring` | documented `"data/biome/_pixel_scenes.xml"`<br>hardcoded *this function's own usage string* |
+| 1 | `filename` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 2 | `pixel_scenes` | `string` | `lua_isstring`, `lua_tolstring` | documented `"data/biome/_pixel_scenes.xml"`<br>becomes `""` |
 
 reads `0x01154a20`
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `BiomeMapSetPixel`  
 `0x007c78d0` &middot; 793 instructions &middot; enforces >= 3 args &middot; returns nothing
@@ -5607,8 +5607,8 @@ reads `0x01204720`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `material_dynamic` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
-| 2 | `material_static` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>hardcoded *this function's own usage string* |
+| 1 | `material_dynamic` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
+| 2 | `material_static` | `string` | `lua_isstring`, `lua_tolstring` | documented `""`<br>becomes `""` |
 
 Runtime messages:
 - `couldn't find material:`
@@ -5619,14 +5619,14 @@ reads `0x01205010`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `CreateItemActionEntity`  
 `0x007c5f10` &middot; 983 instructions &middot; enforces >= 1 arg &middot; returns 1
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `action_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `action_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 2 | `x` | `number` | `lua_tonumber` | documented `0` |
 | 3 | `y` | `number` | `lua_tonumber` | documented `0` |
 
@@ -5634,7 +5634,7 @@ Returns `entity_id:int`
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 #### `DoesWorldExistAt`  
 `0x007bc070` &middot; 846 instructions &middot; enforces >= 4 args &middot; returns 1
@@ -5680,7 +5680,7 @@ writes `0x01205030`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `entity_id` | `int` | `lua_tointeger` | - |
-| 2 | `game_effect_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `game_effect_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 | 3 | `always_load_new` | `bool` | `lua_toboolean` | - |
 
 Returns `effect_component_id:int,effect_entity_id:int`
@@ -5692,7 +5692,7 @@ writes `0x01152ff0` = 1 &middot; reads `0x01204b98`
 
 > Goes through the entity-manager singleton `DAT_01204b98` (lazy-built, then a **linear** id scan), so bulk loops over entities are O(n) per lookup.
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `GetParallelWorldPosition`  
 `0x007a6800` &middot; 913 instructions &middot; enforces >= 2 args &middot; returns 2
@@ -5780,14 +5780,14 @@ reads `0x01204b98`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `color` | `int` | `lua_tointeger` | - |
-| 2 | `function_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 2 | `function_name` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 Runtime messages:
 - `couldn't find BiomeSpawnScript for us... no color registered`
 
 reads `0x01224ad4`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `SetPlayerSpawnLocation`  
 `0x007b91e0` &middot; 753 instructions &middot; enforces >= 2 args &middot; returns nothing
@@ -5817,12 +5817,12 @@ reads `0x01205004`, `0x01205024`, `0x01221d18`
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
 | 1 | `time_to_execute` | `number` | `lua_tonumber` | - |
-| 2 | `file_to_execute` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
-| 3 | `function_to_call` | `string` | `lua_isstring`, `lua_tolstring` | documented `nil`<br>hardcoded *this function's own usage string* |
+| 2 | `file_to_execute` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
+| 3 | `function_to_call` | `string` | `lua_isstring`, `lua_tolstring` | documented `nil`<br>becomes `""` |
 
 reads `0x00fe3c84`
 
-> A missing/invalid string argument (argument 2) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 2) that is missing or not a string is replaced by an empty string, and a `param 2 wasn't a string, string was expected` warning is logged.
 
 #### `SetWorldSeed`  
 `0x007c3d90` &middot; 713 instructions &middot; enforces >= 1 arg &middot; returns nothing
@@ -5838,10 +5838,10 @@ writes `0x01205004`, `0x01206faa`
 
 | # | parameter | declared | read as | if absent |
 |---|-----------|----------|---------|-----------|
-| 1 | `action_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>hardcoded *this function's own usage string* |
+| 1 | `action_id` | `string` | `lua_isstring`, `lua_tolstring` | -<br>becomes `""` |
 
 
 
-> A missing/invalid string argument (argument 1) is replaced by **this function's own signature text**, so a malformed call silently yields the usage string as its value.
+> A string argument (argument 1) that is missing or not a string is replaced by an empty string, and a `param 1 wasn't a string, string was expected` warning is logged.
 
 <!-- END GENERATED reference -->

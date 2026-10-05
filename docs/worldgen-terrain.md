@@ -32,8 +32,8 @@ switch (biomeMap->type) {                // biomeMap + 0x04
       if (tile < 1) goto procedural_fallback;
       material = FUN_004ad080(factory->indexed /* +0x28 */, tile);
       if (!material) goto procedural_fallback;
-      threshold = material->min_y;       // CellMaterial + 0x238
-      if (y < threshold) return 0;       // above the tile's floor: air
+      threshold = material->threshold;   // CellMaterial + 0x238, default 0.5
+      if (x_in_tiles < threshold) return 0;   // left of the threshold: air
       // +0x23c picks one of three connectivity bookkeeping routines
       return material;
 }
@@ -74,7 +74,7 @@ what actually decides what a pixel is made of.
 if (!(aggregate_min <= v && v <= aggregate_max)) return 0;   // union over ALL components
 
 for (rec = materials->components; rec < end; rec += 0x84) {   // already sorted by material_index
-    if (rec->limit_y && !(rec->limit_min_y <= y && y < rec->limit_max_y)) continue;
+    if (rec->limit_y && !(rec->limit_min_y <= y && y <= rec->limit_max_y)) continue;
 
     if (rec->is_polygon) {                                    // crossing-number test
         px = hash(x, 0x200) / 512.0;                          // -> [0,1]
@@ -162,7 +162,7 @@ What that means in practice:
 | +0x38 | `is_rare` | `false` | enable the rare gates; **false short-circuits them entirely** |
 | +0x39 | `limit_y` | `false` | gate on the pixel-y band below |
 | +0x3C | `limit_min_y` | `100.0` | inclusive lower bound on **integer pixel y** |
-| +0x40 | `limit_max_y` | `2048.0` | exclusive upper bound on **integer pixel y** |
+| +0x40 | `limit_max_y` | `2048.0` | inclusive upper bound on **integer pixel y** |
 | +0x44 | `rare_use_perlin` | `false` | |
 | +0x45 | `rare_use_fbm_perlin` | `false` | use fbm instead of plain perlin |
 | +0x46 | `rare_use_polka` | **`true`** | |
@@ -183,21 +183,21 @@ What that means in practice:
 Two defaults are worth calling out because they make a freshly written `<MaterialComponent>`
 behave differently from what the attribute names suggest: **`rare_use_polka` defaults to true**
 and **`rare_polka_is_boxed` defaults to true**, while `is_rare` defaults to **false**, which
-means a component that omits `is_rare` never consults any of the rare machinery. The shipped XML
-sets every one of them explicitly.
+means a component that omits `is_rare` never consults any of the rare machinery. Almost every
+shipped component sets all three explicitly.
 
 ### `is_polygon`
 
 With `is_polygon` set, the component claims a pixel by **point-in-polygon** instead of by the
 cave value at all. The pixel's x and y are each hashed with a `0x200` grid and scaled by `1/512`
 into `[0,1]²`, then tested against the polygon with a crossing-number algorithm. This is a real
-alternative selection mechanism, not part of the value path — and no shipped biome uses it, so it
-is a modding hook.
+alternative selection mechanism, not part of the value path — and only four shipped biomes use it
+(`boss_arena`, `end_wall`, `lava_90percent`, `temple_wall`), so it is mostly a modding hook.
 
 ## The cave generator: `<BitmapCaves>`
 
-`BitmapCaves` is a 0x2F0-byte object at `Biome + 0x00`, and it is what a procedural biome's
-shape actually comes from. The parameters describe **how many caves to draw and how hard**; the
+`BitmapCaves` is an object reached through the pointer at `Biome + 0xC0`, and it is what a
+procedural biome's shape actually comes from. The parameters describe **how many caves to draw and how hard**; the
 shape is perlin.
 
 | offset | field | default | meaning |
@@ -241,7 +241,7 @@ because a wang-tile biome's caves come from its template image instead and only 
 the caves are written into the **wang tile map** at `Biome + 0x1D4` (registered as
 `mBitmapNoise`), as four parallel byte planes (see [worldgen-wang.md](worldgen-wang.md)). The
 per-pixel path for a procedural biome then reads that map, not a separate bitmap. A procedural
-biome with no `CaveStructures` and no wang template gets a shared 1×1 dummy map, and therefore no
+biome with no `BitmapCaves` and no `bitmap_noise_file` gets a shared 1×1 dummy map, and therefore no
 caves at all - just gradient and perlin.
 
 ### The carver and its seed
@@ -313,8 +313,7 @@ A third material mechanism, image-based rather than noise-based.
 | +0x44 | `mImageData` | `NULL` (runtime) |
 
 `seed` and the `bone` default were recovered by reading the two 4-byte literals straight out of
-`noita.exe`; an earlier pass had written them off as unrecoverable because the surrounding
-`.rdata` padding is not covered by any string table.
+`noita.exe`; the surrounding `.rdata` padding is not covered by any string table.
 
 ## Writing the cell
 
@@ -363,12 +362,12 @@ returns without appending if it finds one.
 |---|---|
 | +0x00 | x in pixels |
 | +0x04 | y in pixels |
-| +0x08 | **tile width, in tiles** — consumed as `(int) * 10` |
-| +0x0C | **tile height, in tiles** — consumed as `(int) * 10`; `0/0` for procedural records |
+| +0x08 | **tile width, in tiles** — consumed as `(int) * 10`; always `1` for wang records, `0` for procedural ones |
+| +0x0C | **tile height, in tiles** — consumed as `(int) * 10`; always `1` for wang records, `0` for procedural ones |
 | +0x10 | one byte from wang plane D, the mask |
 | +0x14 | a spawn-script id at production time (colour − 1); **read as a pointer to a name** by the consumer, so the id is resolved somewhere in between — that step is not in the recovered band |
 | +0x18 | "this record came from the procedural path" |
-| +0x1C | the owning `Biome*`; the consumer reads `biome + 0x76`, the Lua file, from it |
+| +0x1C | the owning `Biome*`; the consumer reads `lua_script` (`biome + 0x1D8`) from it |
 
 Then `IMPL_CreateNewChunk_PART2` turns each record into a Lua call. The call is:
 
@@ -395,7 +394,8 @@ If the biome has no `lua_script`, `biome + 0x1D8` is empty and the game logs
 ## The procedural noise shaping, as far as it is recovered
 
 `0x0087e110` converts world pixels into wang-tile space using the map's `+0x94` scalar, blends
-toward the surface, applies a blob cave when the biome's blob amplitude (`+0x268`) is non-zero:
+toward the surface, applies a blob-cave step when the biome's `mMultiplierPerlin` (`+0x268`) is
+non-zero:
 
 ```c
 if (0.5 < v && biome->blob_amplitude != 0.0f) {
@@ -405,14 +405,14 @@ if (0.5 < v && biome->blob_amplitude != 0.0f) {
 }
 ```
 
-and then switches on the shape type at `Biome + 0x220` (values 1, 2, 3), where types 2 and 3
-build `sin`/`cos` terms through libm. The gradient parameters
-(`mGradientStartY`, `mGradientEndY`, `mGradientSlopeStartX` default `-512.0`,
-`mGradientSlopeDelta` default `512.0`) feed that: with `mGradientAddNoise = 3` the slope term is
-`(x - mGradientSlopeStartX) * mGradientSlopeDelta`, i.e. a linear ramp across the whole world
-width by default.
+and then switches on `noise_type` at `Biome + 0x220`: 1 is `IQ_SIMPLEX`, 2 is
+`SIN_CAPPED_EVERYTHING` and 3 is `SIN_CAPPED_SIMPLEX` (the last two build `sin`/`cos` terms through
+libm); 0 (`IQ2_SIMPLEX1234`, the default) takes the remaining branch.
 
-**Not recovered**: the exact float constants behind two of the `mInside*`/`mGradient*` default
-pairs. They are `.rdata` literals that no string table covers; they can be read out of the
-executable, but they are build-specific, so a reimplementation should treat the parameter names
-as the contract and read the constants from a build rather than trusting a table here.
+The gradient parameters give the two ends of the value range at a pixel: `mGradientStartY` and
+`mGradientEndY` (defaults `-512.0` and `512.0`). `mGradientAddNoise` changes how they are
+perturbed: 1 adds perlin noise to both ends, 2 uses fbm perlin for the first end, and 3 shifts
+both ends by `(v - mGradientSlopeStartX) * mGradientSlopeDelta` (defaults `0.0` and `1.0`), where
+`v` is the pixel's second world coordinate, i.e. a linear ramp. The noise terms are scaled by
+`mGradientNoiseScale` (default `0.01`) and by `mGradientLowNoise` / `mGradientHighNoise`
+(`-100.0` / `100.0`).

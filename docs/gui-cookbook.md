@@ -33,11 +33,11 @@ Everything else is detail.
 
 ```
 GuiStartFrame(gui)
-  reset: frame options -> 0
-         pending options -> 1          (bit 0 on: default alignment)
-         colour alpha   -> 1.0
+  reset: frame options -> 1          (bit 0 on: default alignment)
+         pending options -> 1        (same)
+         next-widget colour -> opaque white
          frame z, pending z -> 0
-         previous-widget record -> zeroed
+         previous-widget record -> default (all zero, scale word 1.0)
   NOT reset: layout stack, id stack, layer stack, scroll stacks, widget-state cache
   read the mouse
 
@@ -111,21 +111,22 @@ origin `(ox, oy)` and cursor `(cx, cy)`:
 2. Place:
      cursor-relative:   x = cx + x ,  y = oy + y
      origin-relative:   x = ox + x ,  y = oy + y - h - margin_y
-3. Advance the cursor by direction:
+3. Advance the cursor by direction (cursor-relative placement only, and not under the
+   right/left/bottom alignment options):
      horizontal: cx = margin_x + x + w
      vertical:   cy = margin_y + y + h
      wrap:       count items; on overflow, reset cx to ox and drop cy
      none:       no branch matches, so the cursor does not advance
-4. Always grow the frame's content extent:
-     content_w = max(content_w, x + w)
-     content_h = max(content_h, y + h)
+4. On the same path, grow the frame's content extent:
+     content_w = max(content_w, margin_x + w)
+     content_h = max(content_h, margin_y + h)
 ```
 
 Two consequences that matter when reimplementing:
 
 - **Extents are updated even when the cursor does not advance.** That is how the scroll
   container measures its content: it pushes a layout in "no advance" mode, draws children, and
-  reads the accumulated extent at the end.
+  accumulates their bounding box for the end call.
 - **With no active layout, step 2–4 are skipped entirely** and the widget keeps whatever
   position its own arguments produced. This is the "widgets outside a layout are positioned by
   their arguments alone" rule, and it is why option `15` works as an escape hatch.
@@ -177,15 +178,15 @@ rather than directly.
 
 ### Layers
 
-`GuiLayoutBeginLayer` / `GuiLayoutEndLayer` push a small record whose only job is to carry a
-**layer id**, which becomes a draw-group / z-boundary. It is a 16-byte record where a layout
-frame is 48, and they share one vector.
+`GuiLayoutBeginLayer` / `GuiLayoutEndLayer` push a record that carries a **layer id**, which
+becomes a draw-group / z-boundary, and that owns its own stack of layout frames. A layout begun
+inside a layer is positioned relative to the enclosing layout *in that layer*, not relative to a
+layout in an outer layer. A freshly begun layer has no frames, so widgets drawn in it before any
+layout is begun are not laid out — which is what makes a layer the way to draw non-layouted
+widgets inside a layout.
 
-The engine's own nesting is always *layer outside layout*. A layout containing a layer, or any
-other interleaving, reads the wrong record. If you reimplement this, either keep one stack with
-a type tag (safer than the original) or reproduce the shared-vector behaviour exactly — but
-know that the original is load-bearing for the scroll container and the tooltip, which both do
-*layer → layout → … → layout end → layer end*.
+The scroll container and the tooltip both do *layer → layout → … → layout end → layer end*. If
+you reimplement this, a stack of layers each holding a stack of frames reproduces it directly.
 
 ## Widget identity
 

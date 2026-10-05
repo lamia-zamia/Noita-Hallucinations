@@ -58,12 +58,16 @@ This is the actual answer to "why does it grow when I travel to PW": **there is 
 pruning mechanism at all.** No distance test, no age test, no file-count cap, no dirty
 flag, no deletion pass.
 
-- `FindFirstFileW`, `FindNextFileW`, `GetFileAttributesA` and `DeleteFileW` have **zero
-  cross-references** in the executable.
-- Every delete goes through one wrapper, and all **11** of its callers are one-shot
-  cleanup paths: the `-clean_config` / `-clean_everything` command-line spells, crash
-  recovery, and the `.salakieli` backup rotation. **No caller ever deletes a `world_*`,
-  `area_*` or `entities_*` file.**
+- Deleting is rare and always a one-shot event. The one function that removes `world_*`,
+  `area_*` and `entities_*` files is `0x006b1170`, which lists `??SAV/world` and deletes
+  **every file in it except `magic_numbers.xml`**. Its callers are all one-shot: new-game start-up, the
+  delete-save path (it logs `Deleting save`), the "discard the crashed run's autosave" prompt,
+  front-end menu actions and start-up handling. None is in the streaming code.
+- The other `DeleteFileW` callers remove fixed names: `player.xml`, `world_state.xml`,
+  `session_numbers.xml` and their `.salakieli` backups, the `bones_new` and flag directories, the
+  stats and streak files, `mod_config.xml` / `mod_settings.*`, and the `.autosave*` markers.
+- The file-listing calls (`FindFirstFileW`, `FindNextFileW`) live in the file-device layer; no
+  streaming or eviction code uses them.
 
 So file count == number of distinct chunks you have ever visited, and every one of them
 leaves three permanent files. A long Parallel Worlds run walks a straight line through
@@ -178,23 +182,23 @@ SHL  ECX, 0x9      ; back to pixels
 
 **The chunk coordinate is reduced modulo 512.** The world is a 512×512-chunk torus,
 262 144 × 262 144 pixels. A true third dimension is not patchable: that 9-bit mask is baked
-into at least 40 separate expressions across 5 functions, plus a second independent 18-bit
+into many separate expressions across several functions, plus a second independent 18-bit
 mask for the in-chunk raster.
 
 ### The real limit is smaller than the torus
 
-The binding constraint is the biome map, a **single non-tiling 70×48-chunk window** centred
-on the origin — 35 840 × 24 576 pixels (`data/scripts/biome_map.lua`,
+The binding constraint is the biome map, a **single non-tiling 70×48-chunk window** — 35 840 × 24 576 pixels (`data/scripts/biome_map.lua`,
 `BiomeMapGetSize`). That gives a maximum usable offset of roughly:
 
-> **±17 920 px in x (35 chunks), ±12 288 px in y (24 chunks)** — about 1 490 player-widths.
+> **±17 920 px in x (35 chunks); y from −7 168 to +17 408 px (14 chunks above the origin, 34 below)** — about 1 490 player-widths in x.
 
 The chunk index and float32 precision are nowhere near binding: they allow 262 144 px and
 8 388 607 px respectively, i.e. 14.6× and 468× further out. If you teleport past the biome
 window you get unpopulated or wrongly-biomed terrain, not a crash.
 
-Worth knowing: Noita already has a world axis — `world = chunk / 70`, by division, at
-`0x007a6800`. It simply never populates more than one tile. So a real second world means a
+Worth knowing: Noita already has a world axis — `GetParallelWorldPosition` (`0x007a6800`)
+computes `world = floor(chunk / biome-map chunks wide)` (70 in vanilla) on x, and likewise on y with
+the chunks-high field. It simply never populates more than one tile. So a real second world means a
 mod that *builds* tile ±1 out of pixel scenes, which is a large but ordinary mod project —
 not a patch.
 
@@ -218,28 +222,23 @@ would try and they are wrong.
 | Name | VA | Bytes | Issue | What it does | Risk |
 |---|---|---|---|---|---|
 | `autosave-marker-period` | `0x00743a24` | `c1 e6 04` → `c1 e6 06` | save | `.autosave*` marker rewrite period `DAT*60` frames → `DAT*252`. 4.2× less frequent. Cuts the part of the save that repeats on a timer when nothing changed. | Low. Wider crash-recovery window. |
-| `stream-request-cap` | `0x0071fe8f` | `2c 01 00 00` → `96 01 00 00` | hitches | Caps the streaming work queue at 150 instead of 300 items per pass. Fewer long frames while travelling. Possible edge pop-in. | Low. Cannot corrupt a save. |
+| `stream-request-cap` | `0x0071fe8f` | `c7 83 bc 05 00 00 2c 01 00 00` → `c7 83 bc 05 00 00 96 01 00 00` | hitches | Caps the streaming work queue at 150 instead of 300 items per pass. Fewer long frames while travelling. Possible edge pop-in. | Low. Cannot corrupt a save. |
 | `huge-aabb-cap` | `0x00728aea` | `83 f9 64` | hitches | **Disabled.** The dirty-rectangle cap; over-cap input is dropped, not clamped. | Correctness loss. |
-| `no-evict-on-stream` | `0x00743b4e` | `01` → `00` | save | **Disabled.** Stops chunks being written when evicted. | Unbounded RAM; wrong direction for long runs. |
+| `no-evict-on-stream` | `0x00743b4e` | `c7 45 e4 01 00 00 00` → `c7 45 e4 00 00 00 00` | save | **Disabled.** Stops chunks being written when evicted. | Unbounded RAM; wrong direction for long runs. |
 
 ### Applying them
 
 The rule is: **verify, then patch a copy, never in place.**
 
-```sh
-python scripts/patch.py --exe <path>/noita.exe --spec scripts/patches.json
-python scripts/patch.py --exe <path>/noita.exe --spec scripts/patches.json --out noita_patched.exe
-python scripts/patch.py --exe noita_patched.exe --spec scripts/patches.json   # re-check: reports "done"
-```
+Map each virtual address to a file offset through the PE section table, and refuse to write a
+single byte unless the bytes already in the file match the expected value exactly. That check is
+what stops a patch from silently corrupting a build the addresses were not taken from. Check the
+bytes first, write to a copy, and treat "bytes already patched" as a no-op so the procedure is
+safe to run twice.
 
-`patch.py` maps virtual addresses to file offsets through the PE section table and
-refuses to write a single byte unless the bytes already in the file match the `expect`
-field exactly. That check is the point: it is what stops a patch from silently corrupting
-a build the addresses were not taken from. Re-running against an already-patched file
-reports `done` and writes nothing, so it is safe to run twice.
-
-Addresses in the spec are section-relative to `.text`; for reference, `.text` is
-`VA 0x00001000..0x00b06e1e`, file offset `0x00000400..0x00b06400`.
+Addresses are absolute virtual addresses (imagebase included). `.text` starts at VA
+`0x00401000` and maps to file offset `0x00000400`, so `file_offset = VA - 0x00401000 + 0x400`
+for any address inside it (`.text` is RVA `0x1000..0xb06e1e`, file offsets `0x400..0xb06400`).
 
 **Steam will not launch a modified `noita.exe`** — it verifies its own binaries. Either
 launch the patched copy from something that does not go through Steam's launcher, or

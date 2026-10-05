@@ -44,8 +44,8 @@ Five element types matter:
 
 | element | lives in | what it controls | page |
 |---|---|---|---|
-| `<Topology>` | `Biome + 0x08` … `+0x2E8` | the shape: which generator, backgrounds, audio, wang template, the Lua hook | this page + terrain |
-| `<BitmapCaves>` | its own 0x2F0-byte object, reached through a pointer | procedural cave/mountain/blob carving | terrain |
+| `<Topology>` | `Biome + 0x08` … `+0x2F0` | the shape: which generator, backgrounds, audio, wang template, the Lua hook | this page + terrain |
+| `<BitmapCaves>` | its own object, reached through the pointer at `Biome + 0xC0` | procedural cave/mountain/blob carving | terrain |
 | `<MaterialComponent>` | flat array at `BiomeMaterials + 0x08`, 0x84 bytes each | **which material a pixel with value *v* becomes** | terrain |
 | `<VegetationComponent>` | flat array, 0xE0 bytes each | trees, grass, ceiling plants | pixelscenes |
 | `<FossilComponent>` | flat array, 0x48 bytes each | fossil/ore blobs stamped as images | terrain |
@@ -61,20 +61,21 @@ per-biome images, wang extras and Lua.
    colour. The chunk index is `coord >> 9`; its **X is wrapped by `% chunks_wide`** and its
    **Y is clamped** to the last row. There is no 512-chunk torus on this array.
 3. The colour is looked up in the table from `_biomes_all.xml`, giving a `Biome*`.
-4. The map is offset by `biome_offset_y` (14 in the shipped file) before the lookup.
+4. Before step 1 the world position is shifted: x gets half the map width in pixels (35 x 512) and
+   y gets `biome_offset_y` x 512 (14 x 512 = 7168 in the shipped file), so the map covers
+   x in [-17920, +17920) and y in [-7168, +17408).
 
-Outside the 70 x 48 window there is no biome at all. `BiomeMapGetPixel` rejects any
-out-of-range coordinate outright, so this is not a soft edge - it is the reason a distant
-teleport lands in nothing, and the reason the parallel-world ceiling in
-[patching.md](patching.md) is the biome window and not the arithmetic.
+The lookup itself never fails for position alone: X wraps modulo the map width and Y is clamped to
+the first or last row, so a position outside the 70 x 48 window reuses the nearest edge row (or the
+wrapped column). A chunk is left without a biome only when its map pixel's colour is not in the
+table; that case logs `Biome - couldn't find a biome at: <x>, <y>`.
 
 ## The `Biome` record
 
 Offsets and defaults below are **not** inferred. Two functions in the executable give them
 directly: one is a binder that passes the field name together with `this + <byte offset>` for
 every registered field, and the other is the constructor that writes every field's compiled-in
-default. A previous version of this page inferred the pairing from declaration order and got 16
-rows wrong from `+0xc0` onward; the table below is the corrected one.
+default.
 
 Six names are **nested child elements with no slot of their own** - they are containers, not
 fields:
@@ -100,8 +101,8 @@ pointer rather than living inline.
 | `+0x0a4` | `limit_background_image` | 10 | `true` |
 | `+0x0a8` | `bitmap_noise_file` | 11 | "" |
 | `+0x0c4` | `noise_biome_edges` | 13 | `true` _(shares one store with `big_noise_biome_edges`, `fat_biome_edges`, `skip_edge_textures`)_ |
-| `+0x0c5` | `big_noise_biome_edges` | 14 | `false` |
-| `+0x0c6` | `fat_biome_edges` | 15 | `true` |
+| `+0x0c5` | `big_noise_biome_edges` | 14 | `true` |
+| `+0x0c6` | `fat_biome_edges` | 15 | `false` |
 | `+0x0c7` | `skip_edge_textures` | 16 | `false` |
 | `+0x0c8` | `audio_music_enter` | 17 | "" |
 | `+0x0e0` | `audio_music_2` | 18 | "" |
@@ -112,7 +113,7 @@ pointer rather than living inline.
 | `+0x108` | `audio_music_trigger_min_y` | 23 | `0.0` |
 | `+0x10c` | `audio_music_trigger_max_y` | 24 | `0.0` |
 | `+0x110` | `audio_biome_id_for_music` | 25 | "" |
-| `+0x128` | `audio_ambience` | 26 | `0` |
+| `+0x128` | `audio_ambience` | 26 | `"cave"` |
 | `+0x140` | `audio_ambience_surface` | 27 | "hills" |
 | `+0x158` | `color_grading_r` | 28 | `1.0` |
 | `+0x15c` | `color_grading_g` | 29 | `1.0` |
@@ -170,53 +171,44 @@ Rows marked *see note* or `*` are covered by the notes below; the constructor wr
 with a wider store than the field size.
 
 **`+0xC4..+0xC7` are four bools written by one dword.** The store is `0x101` at `+0xC4`, which
-little-endian is `C4=1, C5=0, C6=1, C7=0`:
+little-endian is `C4=1, C5=1, C6=0, C7=0`:
 
 | offset | field | default |
 |---|---|---|
 | `+0xC4` | `noise_biome_edges` | **`true`** |
-| `+0xC5` | `big_noise_biome_edges` | `false` |
-| `+0xC6` | `fat_biome_edges` | **`true`** |
+| `+0xC5` | `big_noise_biome_edges` | **`true`** |
+| `+0xC6` | `fat_biome_edges` | `false` |
 | `+0xC7` | `skip_edge_textures` | `false` |
 
-**`+0x230`, `+0x238`, `+0x280`, `+0x290` are single 8-byte fields**, not merged pairs of two
-float fields. Each is written by one `mov qword`, and the constants settle it: both `_DAT_010545e0`
-and `_DAT_010545e8` are `{0x00000000, 0x3f000000}`, i.e. the double **1.0**, while `DAT_01053790`
-is the double **0.01** and is read as a double by the noise code. An earlier pass read these as
-four forced two-field splits; they are not.
+**`+0x230`, `+0x238`, `+0x250`, `+0x258`, `+0x278`, `+0x280` and `+0x290` are 8-byte `double`
+fields**, not merged pairs of two float fields. Each is written by one `mov qword`, and the
+constants settle it: both `_DAT_010545e0` and `_DAT_010545e8` are `{0x00000000, 0x3ff00000}`, i.e.
+the double **1.0**, while `DAT_01053790` is the double **0.01**. The other four default to `0.0`.
 
 **`+0x220` and `+0x224` have no name in the binder.** They are enums, registered through a
 different path, and are stored as the integers `0` and `5`. `+0x220` is `noise_type`
-(`IQ2_SIMPLEX1234`, `IQ_SIMPLEX`, `SIN_CAPPED_EVERYTHING`, `SIN_CAPPED_SIMPLEX`) and `+0x224` is
-the inside-noise generator (`IQNoise`, `DirtyPeeNoise`, `QemNoise`, `WhiteNoise`, `MixNoise`,
-`SimplexNoise`, `STB_Perlin`, `FastBlockNoise`, `SimplexNoise1234`).
+(0 `IQ2_SIMPLEX1234`, 1 `IQ_SIMPLEX`, 2 `SIN_CAPPED_EVERYTHING`, 3 `SIN_CAPPED_SIMPLEX`; default 0)
+and `+0x224` is `mInsideNoiseType`, a `GENERAL_NOISE` enum (0 `IQNoise`, 1 `DirtyPeeNoise`,
+2 `QemNoise`, 3 `WhiteNoise`, 4 `MixNoise`, 5 `SimplexNoise`, 6 `STB_Perlin`, 7 `FastBlockNoise`,
+8 `SimplexNoise1234`; default 5).
 
 ### Slots with no registered name
 
-These are constructor-initialised and read by the runtime, but no XML
-attribute maps to them (std::string size/capacity words omitted):
-
 These are constructor-initialised and read by the runtime, but no XML attribute maps to them:
 
-  `+0x008` = string ``&DAT_00fe3c84`` (len 0)
-  `+0x0c0` = 0
-  `+0x16c` = 0
-  `+0x1b0` = 0
-  `+0x1d4` = 0
+  `+0x0c0` = 0  (at runtime: pointer to the biome's `BitmapCaves` record)
   `+0x1f4` = 0
-  `+0x220` = 0
-  `+0x224` = `0x5` (5)
-  `+0x254` = 0
-  `+0x25c` = 0
-  `+0x2a4` = 0
+  `+0x2a4` = 0  (at runtime: the materials pointer)
 
+`+0x16c` (`fog_of_war_type`), `+0x220` (`noise_type`) and `+0x224` (`mInsideNoiseType`) are enums
+registered through the enum path and do have XML names. `+0x254` and `+0x25c` are the upper halves
+of the 8-byte fields at `+0x250` and `+0x258`.
 
 `+0x04` is the biome **type** (0 procedural, 1 bitmap, 2 wang tile) and `+0x08` is the **`name`**
 string; both are named in the source but registered differently from the XML fields. `+0x1B0`,
 `+0x1D4` and `+0x2A4` are the runtime pointers to the loaded bitmap, the built wang/cave map and
 the materials array. **`+0x2A4` *is* zero-initialised** by the constructor (`param_1[0xa9] = 0`),
-so an earlier claim that the materials pointer was an uninitialised read was wrong - it is simply
-unregistered.
+and it is simply unregistered.
 
 ## `BiomeModifiers`
 
@@ -262,20 +254,18 @@ See [worldgen-wang.md](worldgen-wang.md).
 
 | value | name | per-pixel algorithm | shipped by |
 |---|---|---|---|
-| 0 | `BIOME_PROCEDURAL` | perlin/gradient cave noise, then `<MaterialComponent>` selection | `hills`, `snowcave`, `desert`, most surface biomes |
-| 1 | `BIOME_BITMAP` | read `bitmap_filename` as an RGBA image with wrap-around tiling, RGB *is* the material value | `empty`, `null`, `water`, `gold` and other stubs |
+| 0 | `BIOME_PROCEDURAL` | perlin/gradient cave noise, then `<MaterialComponent>` selection | `hills`, `desert`, `empty`, `null`, `water`, `gold` and the other biomes that omit `type` (the default) |
+| 1 | `BIOME_BITMAP` | read `bitmap_filename` as an RGBA image with wrap-around tiling, RGB *is* the material value | none - no shipped biome sets it |
 | 2 | `BIOME_WANG_TILE` | look up the wang tile at the pixel, then the material's x threshold | `coalmine`, `crypt`, `vault`, `rainforest`, `wizardcave` |
 
-The type is read from the `type` attribute and stored at `+0x04`. Note that the config system
-registers that slot under the name `mode` ("0 = standard, 1 = bitmap level loading"), which
-is *not* the same enumeration: the runtime tests it against 0, 1 and 2 for the three topology
-types. Two names, one field. [worldgen-terrain.md](worldgen-terrain.md) has all three algorithms.
+The type is read from the `type` attribute and stored at `+0x04`. The slot's in-source
+description lists only two values ("0 = standard, 1 = bitmap level loading"), but the runtime
+tests it against 0, 1 and 2 for the three topology types. [worldgen-terrain.md](worldgen-terrain.md) has all three algorithms.
 
 ## A note on XML field names
 
 The C++ field names and the XML attribute names are the same strings - the config system
-registers them for serialisation, which is why `data/biome/*.xml` can be written by hand. The
-one place they diverge is `MaterialComponent`, where the struct has `add_perlin`,
-`add_perlin_scale_x/y` and the XML files use `rare_use_perlin`, `rare_scale_x/y` and friends; both
-sets are registered. `rare_polka_*`, `rare_required_*`, `rare_offset_*` and
-`rare_use_fbm_perlin` are the newer names and are what the shipped XML uses.
+registers them for serialisation, which is why `data/biome/*.xml` can be written by hand. In the
+shipped `<MaterialComponent>` entries (746 of them) `rare_use_perlin`, `rare_scale_x/y`,
+`rare_polka_*` and `rare_required_*` appear on about 680, and `add_perlin`/`add_perlin_scale_x/y`
+on 88; none sets `rare_offset_x/y`, `rare_offset_by_seed` or `rare_use_fbm_perlin`.

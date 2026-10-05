@@ -33,12 +33,17 @@ Most functions begin with the same guard:
 
 ```c
 if (lua_gettop(L) < 4) {
-    /* log:  "GuiText( … ) requires 4 parameters, only 2 given"  */
+    /* builds "requires 4 parameters, only 2 given" and sends it to the error sink,
+       which logs  "Lua error - GuiText( … )"  followed by the indented message  */
 }
 else {
     /* the real work */
 }
 ```
+
+Note the shape of that log line: the message and the signature are logged as *two* lines,
+the second indented, because the signature string is passed to the logger as context rather
+than being formatted into the message.
 
 The failing branch has **no `return` in it**. So an under-supplied call is not reported and
 then partially executed — it performs no work and leaves **no values on the stack**. A function
@@ -49,28 +54,30 @@ assignment, one frame away from the actual mistake.
 [reference](api-reference.md), along with the 7 functions whose enforced minimum disagrees with
 their own signature.
 
-## A missing string argument comes back as a string — often the signature itself
+## A missing string argument becomes an empty string, and says so
 
 When a documented string argument is absent, or present but not a string, the function logs
 
 ```
-<N> param wasn't a string, string was expected
+ param <N> wasn't a string, string was expected
 ```
 
-and then **returns a hardcoded string that the call site baked in**. For many functions that
-hardcoded string is the function's own usage text, which means a malformed call quietly hands
-your code back a copy of the documentation:
+and the argument **becomes the empty string `""`**. The helper that logs the message returns a
+pointer to a zero-length string, and the caller uses that pointer as the argument.
 
 ```lua
 -- AddFlagPersistent expects one string. Give it a number.
 AddFlagPersistent(5)
---> logs: 1 param wasn't a string, string was expected
---> returns true, having searched the persistent-flag store for the key
---    "AddFlagPersistent( key:string ) -> bool_is_new"
+--> logs:  param 1 wasn't a string, string was expected
+--> then searches the persistent-flag store for the key ""
 ```
 
-Where the default is the empty string the substitution is silent. The
-[reference](api-reference.md) marks every affected function under **if absent**.
+Numbers and booleans are looser still: they are read with a plain `lua_tonumber` /
+`lua_toboolean`, so a wrong type is coerced silently with no check and no log line at all.
+The practical summary is the same either way — **a bad string argument does not raise, it quietly
+becomes an empty string**, and the only reliable way to notice is the log.
+
+The [reference](api-reference.md) marks every affected function under **if absent**.
 
 ## An error that repeats is only logged once
 
@@ -113,15 +120,16 @@ visible in the disassembly rather than inferred: 41 of the 54 `Entity*` function
 the same scan. If you are iterating entities, prefer the bulk forms (`EntityGetInRadius`,
 `EntityGetAllComponents`, `EntityGetAllChildren`) over repeated per-id calls.
 
-**The previous-widget block is per-`gui`, at `gui+0x38`.** Exactly ten functions write it -
-`GuiBeginScrollContainer`, `GuiButton`, `GuiEndAutoBoxNinePiece`, `GuiImage`, `GuiImageButton`,
-`GuiImageNinePiece`, `GuiSlider`, `GuiText`, `GuiTextCentered` and `GuiTextInput` - and
-`GuiGetPreviousWidgetInfo` reads it back. Two mods with their own `Gui` objects therefore do not
+**The previous-widget block is per-`gui`, at `gui+0x38`.** Ten functions record a drawn widget
+into it - `GuiBeginScrollContainer`, `GuiButton`, `GuiEndAutoBoxNinePiece`, `GuiImage`,
+`GuiImageButton`, `GuiImageNinePiece`, `GuiSlider`, `GuiText`, `GuiTextCentered` and
+`GuiTextInput` - and `GuiBeginAutoBox` commits a freshly initialised record through the same
+path. `GuiGetPreviousWidgetInfo` reads it back. Two mods with their own `Gui` objects therefore do not
 interfere. Note that the layout and scope functions are not among the writers, so a frame that
 only moves widgets leaves the previous frame's information in place.
 
 **It only ever holds a Lua-drawn widget.** The commit is `FUN_007d97d0(gui, record)` and it has
-exactly 11 callers, every one of them a Lua wrapper in the `0x007d`-`0x007e` band. The game's own
+exactly 11 callers (the ten widget functions and `GuiBeginAutoBox`), every one of them a Lua wrapper in the `0x007d`-`0x007e` band. The game's own
 widgets are built by a different set of functions (`0x008245d0`, `0x00823580`, `0x00825cb0`, ...)
 which never call it. So passing the game's `gui` to `GuiGetPreviousWidgetInfo` returns the last
 widget *you* drew, not a vanilla one - see [ui-modding-2.md](ui-modding-2.md).

@@ -1,9 +1,9 @@
 # Wang tiles
 
 The system that generates most of Noita's underground. A wang tile set is one PNG per biome,
-and the PNG's **pixel values are a density field plus a colour-indexed material lookup** — it is
-not a classic wang tile sheet, and the "herringbone wang" machinery in the binary is a
-separate offline path.
+and the PNG is fed through a herringbone wang-tile image generator (the `stb_herringbone_wang`
+design) that expands it into the biome's `wang_map_width` x `wang_map_height` image. The **pixel
+values** of that image are a density field plus a colour-indexed material lookup.
 
 This page was rewritten after an audit found the first version of it wrong in its central claim.
 What follows is the version that survives cross-checking against the shipped PNGs.
@@ -41,8 +41,10 @@ So the dominant content of every template is a **greyscale ramp**, not coloured 
 
 ## What one template pixel means
 
-The builder is `0x008704c0`, run once per biome region at load time. For each template pixel,
-read as a 32-bit word `0xAARRGGBB`:
+The template is first expanded by `0x00867500` (which calls the herringbone generator at
+`0x00866b90`) into a 32-bit-per-pixel image; pixels copied from the template get alpha forced
+to `0xFF`. The builder is `0x008704c0`, run once per biome region at load time over that image. For
+each pixel, read as a 32-bit word:
 
 ### 1. Nothing at all
 
@@ -58,15 +60,16 @@ so this branch only fires for zero-RGB pixels.
 
 A separate earlier branch sets a byte in plane D to 1, and a later pass dilates that mask by one
 pixel in each direction. **No shipped template contains an alpha-254 pixel** (checked across all
-30 files), so this is a modding-only feature.
+32 files), and pixels that come through the herringbone expansion are forced to alpha `0xFF`, so
+this branch can only be reached by an image that is blitted directly.
 
 ### 3. Greyscale and white — the **density/weight plane**
 
-This is the part that was missing before. A greyscale pixel writes **only** the float plane:
+A greyscale pixel writes **only** the float plane:
 
 ```c
-// 0x008704c0.c:204-207
-fVar13 = (float)(double)(uVar2 >> 16 & 0xff) * (1.0f/255.0f);        // R
+// 0x008704c0
+fVar13 = (float)(double)(uVar2 >> 16 & 0xff) * (1.0f/255.0f);        // bits 16-23: the PNG's blue channel
 weight = ((float)(double)(uVar2 >>  8 & 0xff) * (1.0f/255.0f)       // G
           + fVar13 + fVar13) / 3.0f;
 ```
@@ -74,7 +77,7 @@ weight = ((float)(double)(uVar2 >>  8 & 0xff) * (1.0f/255.0f)       // G
 so
 
 ```
-weight = (G + 2*R) / 765
+weight = (G + 2*B) / 765
 ```
 
 which means:
@@ -113,7 +116,7 @@ simply reaching the greyscale branch. Treat it as a known-reserved marker of unk
 A chromatic, non-reserved colour is looked up in two places, in order:
 
 **(a) The global `wang_color` table.** `materials.xml` carries a `wang_color` attribute on
-**467 distinct materials**, and the engine has two dedicated diagnostics for it
+**469 `CellData` / `CellDataChild` entries (467 distinct colours)**, and the engine has two dedicated diagnostics for it
 (`CellFactory - wang_color collision in `, `ERROR in materials.xml!!! wang_color for `). A hit
 gives **tile id = material id + 1** and weight `+1.0`; material 0 (air) is stored as tile id 1
 with weight `−1.0`, i.e. "explicitly nothing".
@@ -129,12 +132,14 @@ RegisterSpawnFunction( 0xff969678, "load_structures" )
 A miss in (a) calls the biome's Lua dispatcher, which returns an index; that index is stored
 1-based in a **byte plane** and pushed onto a 12-byte `{x, y, index}` record list.
 
-This is the live path, and it is verifiable: `coalmine.png` contains `ff0000ff` **413 times**
-and `coalmine.lua` registers exactly that colour for `spawn_nest`.
+This is the live path, and it is verifiable: the integer given to `RegisterSpawnFunction` is
+`0xAARRGGBB`, so `0xff0000ff` is pure blue, and `coalmine.png` contains that colour (0, 0, 255)
+102 times. Across all biome scripts, 103 of the 225 registered colours occur in the shipped
+templates under this reading, and only 3 under the reversed one.
 
 ## The uint16 plane is a material id, not a run length
 
-This is where the previous version of this page was wrong. The tile plane is
+The tile plane is
 **`material_id + 1`**, and there is no counter in the function that could be a run length:
 
 - the value written at the "tile" site comes from a **pure map lookup** (`local_64 = fn(colour)`
@@ -159,11 +164,15 @@ That is why a template needs broad, coherent colour regions to come out clean: t
 plurality vote, so a tile surrounded by four different colours gets whichever of them occurs
 twice, or stays a hole if all four differ.
 
-## The "herringbone wang" in the binary is a different thing
+## Two different herringbone paths
 
-`0x00879bf0` is named `CreateHerringboneWang(` and there is a string
-`increase STB_HBWANG_MAX_X/Y` at `0x00866b90` (STB herringbone-wave). That is a real algorithm
-and it is in the executable, but it is **not** on the load path the game uses:
+The executable contains the STB herringbone wang-tile generator (the string
+`increase STB_HBWANG_MAX_X/Y` is in `0x00866b90`, which refuses images more than 106 tiles wide or
+high). It **is** on the load path: `0x00867de0` calls `0x00867500`, which loads the template as RGB,
+builds the tileset (`0x00867250`) and generates the biome's map image with `0x00866b90`. That is
+why the template can be much smaller than `wang_map_width` x `wang_map_height`.
+
+A second, separate function named `CreateHerringboneWang(` (`0x00879bf0`) is **not** on that path:
 
 - `0x00879bf0` is called from exactly one place, `0x009a6300`, which is in the same address band
   as the other bake/dev tools (`0x009a4f50`, `0x009a6220`, `0x009a6510` all write `temptemp/`
@@ -172,7 +181,7 @@ and it is in the executable, but it is **not** on the load path the game uses:
 - The load path is `0x0087a900` → `0x0086b9f0` → `0x00867de0` → `0x00870de0` → `0x008704c0`, and
   it never calls `0x00879bf0`.
 
-So the name is a red herring for anyone trying to understand shipped caves.
+So `CreateHerringboneWang` is the red herring, not the herringbone generator.
 
 ## Map geometry
 
@@ -227,7 +236,7 @@ sub-struct is:
 
 | plane | data at | element | holds |
 |---|---|---|---|
-| A | `+0x18` | `float` | the density weight `(G+2R)/765` |
+| A | `+0x18` | `float` | the density weight `(G+2B)/765` |
 | B | `+0x38` | `uint16` | **material id + 1** |
 | C | `+0x58` | `uint8` | Lua spawn-function index, 1-based |
 | D | `+0x78` | `uint8` | mask / flags |
@@ -248,7 +257,7 @@ plane's `+0x1C` flag is non-zero.
 gate is in the pixel-chunk worker: `> +0.5` lets the tile decide the pixel, `< 0` sets a separate
 flag plane. Which function copies the plane into `PixelChunk + 0xb4` is not identified.
 
-## `wang_scripts.csv` — and why it looks dead
+## `wang_scripts.csv`
 
 `data/scripts/wang_scripts.csv` maps 30 colours to Lua function names:
 
@@ -260,16 +269,25 @@ ffff0aff,load_pixel_scene,-1,-1,-1,-1
 ff50A0F0,spawn_wands,-3,-3,-4,-4
 ```
 
-Checked against every shipped template in **both byte orders**: **0 of the 30 colours appear in
-any of them.** The loader is `0x00867de0` (`"wang: <name> - couldn't load scripts"`).
+The colour is read as hex `AARRGGBB` (the same reading as `RegisterSpawnFunction`'s integer),
+so `ffff0000` is pure red. Checked against the 32 shipped templates, **14 of the 30 colours
+occur**: `ffff0000` / `spawn_small_enemies` (5 869 pixels in total), `ffffff00` / `spawn_lamp`
+(2 607), `ffc88d1a` / `spawn_props` (2 052), `ff800000` / `spawn_big_enemies` (1 185),
+`ff00ff00` / `spawn_items` (1 136), and nine rarer ones; the other 16 occur in none. None of the
+30 collides with a `wang_color` in `materials.xml`, so these pixels are not materials.
 
-The consequence is that **in vanilla Noita the colour plane of a wang-template biome is never
-filled from a template** — the live registry is the per-biome `RegisterSpawnFunction` calls in
-`data/scripts/biomes/*.lua`, and the CSV appears to be a legacy global table that shipped content
-stopped using. The plumbing between the map and the CSV lives outside the recovered band, so
-this is stated from the data rather than from the code; but the data is unambiguous.
-
-If you are modding: **use `RegisterSpawnFunction` in the biome's Lua, not the CSV.**
+**How it is used.** Each row is parsed into a colour, a function name and four path integers
+(columns that are empty or non-numeric read as `-1`); rows starting with `#` are skipped. The
+table is loaded when a world is started or loaded (`0x0078c910`, from `0x006e9f30` and `0x006afaa0`).
+Whenever a biome's script manager is created (`0x0078cfb0`, called from `0x00867de0` and
+others), every CSV row is registered into it first, and only then is the biome's own Lua script
+run. Both paths register through the same function (`0x0078c4b0`), which **refuses a colour that
+is already registered**: it logs
+`Lua error - AddScriptColor( <colour>, <function> ) - already registered...` and keeps the first
+registration. So a CSV colour always wins, and a biome script that calls `RegisterSpawnFunction`
+for one of the 30 CSV colours is rejected with that log line. At generation time the pixel's
+packed value is looked up in the manager's colour map (`0x0078c6b0`), which returns the
+registration index or `-1`.
 
 The four path columns are a pathfinding request — "the spawn point must be between
 `IN_PATH_MIN` and `IN_PATH_MAX` pixels from the tile origin when inside the path, or between
@@ -331,5 +349,6 @@ temptemp/_biomes_all_wang2.png            the same, second pass
 - Where `RandomColor`'s substitution set is consumed, and what fills the map's `+0xb0` member.
 - Which function copies the weight plane into the pixel chunk.
 - Why the `+0x94` scale (= `width * 5`) offsets one axis by half the map width.
-- The exact plumbing from a colour to the CSV row ordinal. The id appears to be the row ordinal,
-  but the loader is outside the recovered band.
+- The exact plumbing from a colour to the CSV row ordinal, and the precedence between the CSV and
+  `RegisterSpawnFunction`. The id appears to be the row ordinal, but the reader is outside the
+  recovered band.

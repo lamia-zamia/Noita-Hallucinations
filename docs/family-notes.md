@@ -10,9 +10,8 @@ disassembly rather than the signatures. The per-function evidence is in
 directly and 11 more go through the argument helper `0x0078da80`, which does the same lookup
 — 41 of 54 in total. The remaining ones work on a component or on a coordinate, not an id.
 
-`EntityLoad`, `EntityLoadEndGameItem` and friends are the exception: they allocate through the
-manager singleton `0x00439bb0` (stored at `0x01204b98`) and can fail with
-`Error! Couldn't create a new entity, out of memory?`.
+`EntityLoad` and `EntityLoadEndGameItem` are the exception: they create a new entity rather
+than looking one up, and can fail with `Error! Couldn't create a new entity, out of memory?`.
 
 Passing `0` is meaningful, not an error: `GameShootProjectile` documents
 `shooter_entity` "can be 0", and the lookup returns null rather than raising, so the
@@ -78,9 +77,10 @@ Two functions return the full 6-value transform (`PhysicsBodyIDGetTransform`,
 
 ### Materials & cells
 
-The `CellFactory_*` family is the material enum: `GetType`, `GetName`, `GetTags`,
-`GetUIName` and the five `GetAll*` dumps take **no arguments** and enumerate the cell
-material table at runtime. `CellFactory_GetType` is the name-to-id conversion used
+The `CellFactory_*` family is the material enum: `GetType`, `GetName`, `GetTags` and
+`GetUIName` each take one argument (a material name or id), `HasTag` takes two, and the five
+`GetAll*` dumps take only optional flags (`include_statics`, `include_particle_fx_materials`)
+and enumerate the cell material table at runtime. `CellFactory_GetType` is the name-to-id conversion used
 throughout the API; there is no numeric literal for a material anywhere in the Lua surface,
 which is why so many signatures spell it `material_type:number`.
 
@@ -93,9 +93,11 @@ single call.
 
 ### Mod file & image overrides
 
-Nine functions that all carry the caveat *"Unlike most Mod\* functions, this one is
-available everywhere."* They are callable before the mod context exists, which is why they
-are the only ones usable from `OnModInit` pre-registration code. `ModImageGetPixel` and
+Eight functions (`ModImageDoesExist`, `ModImageGetPixel`, `ModImageIdFromFilename`,
+`ModImageSetPixel`, `ModImageWhoSetContent`, `ModLuaFileGetAppends`, `ModTextFileGetContent`,
+`ModTextFileWhoSetContent`) carry the caveat *"Unlike most Mod\* functions, this one is
+available everywhere."* The file-patching `Mod*` functions exist only during
+initialisation; these stay callable afterwards. `ModImageGetPixel` and
 `ModImageSetPixel` silently fail and return 0 on an invalid id — no log line.
 
 ### Mod settings
@@ -114,14 +116,14 @@ push-helper `0x0078d9f0`, so it has no `lua_push*` of its own.
 ### Stats
 
 Five functions over the run/global/biome stat stores. `StatsGetValue` is the only one whose
-signature admits `nil`; the rest always return a string, empty if the key is unknown.
+signature admits `nil`; the other two getters always return a string, empty if the key is unknown.
 
 ### Flags & globals
 
 `AddFlagPersistent` / `HasFlagPersistent` / `RemoveFlagPersistent` and the `Globals*` pair.
 `AddFlagPersistent` is the clearest example in the API of the string-fallback trap: called
-with a non-string it logs `1 param wasn't a string, string was expected` and then searches
-the store for the key `"AddFlagPersistent( key:string ) -> bool_is_new"`.
+with a non-string it logs `1 param wasn't a string, string was expected` and then carries on with
+the key `""` (the empty string), so it records a flag with an empty name.
 
 `GlobalsGetValue` / `GlobalsSetValue` are **not** a preferences API, despite the name. The store is
 a flat string→string map on the *WorldState entity* — the same one `GameGetWorldStateEntity()`
@@ -178,9 +180,11 @@ what makes them usable inside world-generation callbacks that may be re-entered.
 ### Raytracing
 
 `Raytrace`, `RaytracePlatforms`, `RaytraceSurfaces`, `RaytraceSurfacesAndLiquiform` and
-`GetSurfaceNormal`. All five return the same 3-value shape (`did_hit`, then the point), and
-differ only in which cells count as a hit — the documentation strings state the predicate
-for each.
+`GetSurfaceNormal`. The four `Raytrace*` functions return the same 3-value shape (`did_hit`,
+then the point), and differ only in which cells count as a hit — the documentation strings state
+the predicate for each. `GetSurfaceNormal` is different: it takes a position, a ray length and
+a ray count, and returns `found_normal`, `normal_x`, `normal_y` and
+`approximate_distance_from_surface`.
 
 ### Herd & genome
 

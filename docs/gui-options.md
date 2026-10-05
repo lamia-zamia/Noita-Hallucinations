@@ -33,18 +33,18 @@ value does something. Treat the table below as "these bit positions have this ef
 
 ### The tested bits, and the gaps
 
-Bits with a confirmed behavioural effect — **0, 2, 3, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17,
-19, 21, 22, 23, 24, 25, 29**, plus 30 and 31 which are sentinels rather than features.
+Bits with a confirmed behavioural effect — **0, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+17, 19, 21, 22, 23, 24, 25, 29**, plus 30 and 31 which are sentinels rather than features.
 
-The gaps — **4, 18, 20, 26, 27, 28**, and everything from 32 upward: no test of the option
-word was found anywhere in the GUI call graph. On the evidence in the executable these are
-no-ops.
+The gaps — **4, 18, 20, 26, 27, 28**, and everything from 32 upward except bit 50: no test of the
+option word was found anywhere in the GUI call graph. On the evidence in the executable these are
+no-ops. Bit 50 (high half `0x40000`) enables the scroll container's animated scrolling; the
+container sets it itself on every call.
 
-**Bit 9 was on this list and should not have been.** It is read in the widget-state lookup
-(`out/decomp-gui/0081b090.c:227`), where it gates a latch of the pending offset into the state
-entry when the frame counter has advanced — see the input table below. The game's own pause-menu
-buttons all set it. The census behind this list missed a consumer outside the widget builders;
-re-run it before trusting any of the remaining gaps.
+Bit 9 is read in the widget-state lookup (`0x0081b090:227`), outside the widget builders, where it
+gates a latch of the pending offset into the state entry when the frame counter has advanced —
+see the input table below. The game's own pause-menu buttons all set it. A consumer outside the
+widget builders is easy to miss, so treat the gap list as strong evidence rather than proof.
 
 Bit 1 is the interesting one. `0x2` is tested in five places, but **none of them is a test of
 the option word**: they are frame bookkeeping, a mask read in the text function, and two tests
@@ -92,11 +92,6 @@ options that gate large obvious branches are solid. A few of the finer ones — 
 the sentinel bits — are described as "what the test does", which is accurate but less useful than
 a name would be.
 
-To re-derive or extend: `OptionBits.java` reports every bit test in the GUI call graph, and
-`scripts/option_context.py` reprints each one with the register it applies to. When a game's
-update adds options, the ones that show up here as new tests are the ones that started working;
-the rest are still decoration.
-
 ## How to read the bit numbers
 
 An option value `v` sets bit `v & 31` of a 64-bit set stored as two 32-bit halves. So the bit
@@ -129,7 +124,7 @@ through on its way to a final position.
 | `11` (`0x800`) | Align **left**: shift x right by the widget's width plus `margin_x`. |
 | `12` (`0x1000`) | Align **bottom**: shift y up by the widget's height, plus `margin_y`. |
 | `14` (`0x4000`) | Suppress the **y cursor advance** in a vertical layout. The widget is placed but the layout does not move down for it. |
-| `13` (`0x2000`) | Force the origin-relative placement branch, even when a layer is on top of the layout stack. |
+| `13` (`0x2000`) | Apply the layout placement even when the top layer's flag byte is `0` (the layer the scroll container pushes while it draws its scrollbar). |
 | `15` (`0x8000`) | **Ignore the layout entirely.** Skips cursor maths, placement and bounding-box accumulation; the widget keeps the position computed from its own arguments. The only other option that does this much. |
 | `16` (`0x10000`) | Shift x left by **half** the widget's width. |
 | `17` (`0x20000`) | Shift x left by the **full** widget's width. |
@@ -147,8 +142,8 @@ Setting two of them takes the first branch in the chain, so pick one.
 | value | effect |
 |-------|--------|
 | `19` (`0x80000`) | **Drag instead of click.** See the input section. |
-| `23` (`0x800000`) | **Animate.** Advances the widget's animation phase by a fixed step each frame, clamped at 1.0, and resets the phase to 0 when the animation ends. This is the option the scroll container always passes, which is why scroll smoothing is always on and cannot be switched off from Lua. |
-| `25` (`0x2000000`) | Advance the phase **without** the "is it still animating" test — used by the begin/end animation pair to keep a phase ticking across a `GuiAnimateBegin` / `GuiAnimateEnd`. |
+| `23` (`0x800000`) | **Animate.** Advances the widget's animation phase by `0.05` each frame, clamped at 1.0, and resets the phase to 0 on the frame the widget's state entry is new. |
+| `25` (`0x2000000`) | Tested right after the phase update in the same helper, where it triggers an extra calculation; the effect on the drawn widget is not pinned down. |
 | `24` (`0x1000000`) | **Lerp toward full size** on hover. See the rendering section. |
 
 ### Low and high bits that are sentinels, not features
@@ -172,7 +167,7 @@ value the per-widget commit resets to, which is why it is on after every widget.
 | value | effect |
 |-------|--------|
 | `22` (`0x400000`) | Draw the widget at an **animated offset** derived from the frame counter and a per-widget constant, so it moves as the frame count changes. |
-| `21` (`0x200000`) | **Force the full-size scale.** Without it, a widget uses the 1.15-scale variant in some paths and skips a trailing pass. |
+| `21` (`0x200000`) | **Force the full-size scale** on `GuiImageButton`: without it a hovered image button draws at 1.15 or 1.2 times size. It also suppresses the button's hover sound. |
 | `24` (`0x1000000`) | **Lerp toward full size** on hover: interpolates the widget's scale toward 1.0 using a stored value, and resets that value to 0 when hovered. |
 
 ### Input
@@ -187,9 +182,9 @@ read them as a group.
 | `8` (`0x100`) | **Click while held.** Lets the widget report a click when the mouse button is still down, rather than requiring a fresh press inside it. |
 | `19` (`0x80000`) | **Drag instead of click.** When the mouse goes down inside the widget, this records the press position into the widget-state entry instead of consuming it as a click, which is the first half of drag support. |
 | `6` (`0x40`) | **Override the computed position** with the coordinates passed to the widget, bypassing the animated/interpolated position the widget would otherwise use. |
-| `9` (`0x200`) | **Latch the state's offset field.** Not a no-op, despite appearing in the dead-gap list. Read in the widget-state lookup (`out/decomp-gui/0081b090.c:227`): when set, it copies the pending offset into the state entry if the frame counter has moved. The game's own pause-menu buttons all set it. |
+| `9` (`0x200`) | **Latch the state's offset field.** Not a no-op, despite appearing in the dead-gap list. Read in the widget-state lookup (`0x0081b090:227`): when set, it copies the pending offset into the state entry if the frame counter has moved. The game's own pause-menu buttons all set it. |
 
-The hit test, exactly as compiled (`out/decomp-gui/008245d0.c:150-151`):
+The hit test, exactly as compiled (`0x008245d0:150-151`):
 
 ```
 hovered = state_entry_is_new
@@ -206,7 +201,7 @@ object's own `GuiStartFrame`. Two `Gui` objects never compete; see [ui-modding-2
 **And because the option words are just `gui+0x08`/`gui+0x0c` with no ownership check**, you can set
 them on a `gui` the *game* gave you — but only for widgets drawn **through the Lua API**. The
 builders take the option word as an argument (`008245d0.c:68-69`), and the only code that merges
-`gui+0x08`/`gui+0x10` into that argument is the Lua wrapper layer: all 20 merge sites are in the
+`gui+0x08`/`gui+0x10` into that argument is the Lua wrapper layer: every merge site found is in the
 `0x007d`–`0x007e` band. The game passes literals (`006e3410.c` uses `0x8010000` on every pause-menu
 button), so anything on the `gui` object is Lua-private state. See [ui-holes.md](ui-holes.md).
 
@@ -232,12 +227,11 @@ Two things a modder might expect and will not find:
 - **Option `15` is the one to reach for** when a widget must land at an exact position. It is
   the only option that takes the widget out of the layout flow entirely, and combined with
   `16`/`17` it gives you centre and right anchoring against a fixed point.
-- **Options are per-frame or per-next-widget, and they are cleared asymmetrically.** The
-  frame-wide set (`GuiOptionsAdd` / `GuiOptionsRemove` / `GuiOptionsClear`) is reset to 0 at
-  `GuiStartFrame`; the pending set (`GuiOptionsAddForNextWidget`) is consumed and reset to
-  **1**, not 0, by the per-widget commit. `GuiOptionsClear` only zeroes the **high half** of the
-  frame-wide set and does not touch the pending set at all, so an abandoned next-widget option
-  can still apply to a later widget, and clearing does not clear everything. Full detail in
+- **Options are per-frame or per-next-widget.** The frame-wide set (`GuiOptionsAdd` /
+  `GuiOptionsRemove` / `GuiOptionsClear`) is reset to `1` (bit 0 only) at `GuiStartFrame` and by
+  `GuiOptionsClear`; the pending set (`GuiOptionsAddForNextWidget`) is consumed and reset to
+  **1**, not 0, by the per-widget commit. `GuiOptionsClear` does not touch the pending set, so an
+  abandoned next-widget option can still apply to a later widget. Full detail in
   [enums.md](enums.md#there-are-two-option-fields-and-only-one-is-cleared).
 - **Since values are bit positions, combining options means calling the function repeatedly.**
   There is no way to pass `ALIGN_RIGHT | SOMETHING_ELSE`; you call `GuiOptionsAdd` once per

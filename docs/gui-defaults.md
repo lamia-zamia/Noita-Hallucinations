@@ -40,8 +40,8 @@ data/fonts/font_pixel_noshadow.xml
 ```
 
 The default font, and the only one the GUI loads on its own. Reached by **`GuiText`**,
-**`GuiTextCentered`** and **`GuiButton`** via a shared loader, and by
-**`GuiGetTextDimensions`**.
+**`GuiTextCentered`** and **`GuiButton`** via a shared loader, by **`GuiSlider`** and
+**`GuiTextInput`**, and by **`GuiGetTextDimensions`**.
 
 Note the name: *no shadow*. The pixel font renders without a drop shadow, so a reimplementation
 that adds one will look subtly wrong against every existing mod.
@@ -64,11 +64,11 @@ width for text layout.
 
 | asset | used by |
 |-------|---------|
-| `data/ui_gfx/inventory/inventory_colors.png` | the image widget and the nine-piece widget, as the default sprite when no filename is given |
-| `data/ui_gfx/inventory/highlight.xml` | the image widget's hover highlight |
+| `data/ui_gfx/inventory/inventory_colors.png` | the sprite behind the solid-colour rectangles of `GuiSlider`, `GuiTextInput` and the scroll container's scrollbar, when no other sprite is given |
+| `data/ui_gfx/inventory/highlight.xml` | the **`GuiImageButton`** hover highlight |
 
-The image widget picks `inventory/highlight.xml` when the mouse is over the image. That is the
-only hover feedback an unstyled `GuiImage` gets.
+`GuiImageButton` picks `inventory/highlight.xml` when the mouse is over it. A plain `GuiImage`
+has no hover feedback of its own.
 
 ### Sound
 
@@ -77,12 +77,12 @@ only hover feedback an unstyled `GuiImage` gets.
 | `ui/button_click` | on a widget being clicked |
 | `ui/button_select` | on a widget gaining hover focus |
 
-Sound is not specific to `GuiButton`. **Button, slider, text input, image-nine-piece and the
-scroll container all play these** — every interactive widget does. The pattern is the same
+Sound is not specific to `GuiButton`. **Button, slider, text input, image button,
+image-nine-piece and the scroll container all play these.** The pattern is the same
 eachwhere: `ui/button_select` when the widget becomes hovered, `ui/button_click` when it is
-clicked.
+clicked. The scroll container plays `ui/button_select` when its scroll position changes.
 
-Both are **gated on option `15` being clear**:
+Two widgets gate the sound on option `15` being clear:
 
 ```c
 if ((options & 0x8000) == 0) {
@@ -91,9 +91,11 @@ if ((options & 0x8000) == 0) {
 }
 ```
 
-So `GuiOptionsAdd(gui, 15)` — the same option that takes a widget out of the layout — **also
-silences it**. That is almost certainly unintended coupling, and it is a useful thing to know:
-a mod that sets option 15 to get absolute positioning also loses its click sound.
+That is the `GuiButton` and `GuiTextInput` path. So `GuiOptionsAdd(gui, 15)` — the same option
+that takes a widget out of the layout — **also silences those two**. That is almost certainly
+unintended coupling, and it is a useful thing to know: a mod that sets option 15 to get absolute
+positioning on a button also loses its click sound. The image button's hover sound is gated on
+option `21` (`0x200000`) instead; the slider and the nine-piece have no option gate.
 
 The image-nine-piece additionally suppresses the select sound while the pointer is already
 inside the widget, so hovering into a nine-piece does not double up with the highlight change.
@@ -108,7 +110,7 @@ below, because passing the wrong *type* also lands you on the default.
 | function | defaults |
 |----------|----------|
 | `GuiText` | `scale = 1`, `font = ""`, `font_is_pixel_font = true` |
-| `GuiTextCentered` | same as `GuiText` |
+| `GuiTextCentered` | takes only `text` — no `scale` or `font` argument |
 | `GuiButton` | `scale = 1`, `font = ""`, `font_is_pixel_font = true` |
 | `GuiGetTextDimensions` | `scale = 1`, **`line_spacing = 2`**, `font = ""`, `font_is_pixel_font = true` |
 | `GuiImage` | `alpha = 1`, `scale = 1`, **`scale_y = 0`**, `rotation = 0` |
@@ -116,7 +118,7 @@ below, because passing the wrong *type* also lands you on the default.
 | `GuiEndAutoBoxNinePiece` | **`margin = 5`**, `size_min_x = 0`, `size_min_y = 0`, `mirrorize_over_x_axis = false`, `x_axis = 0`, both sprites = `9piece0_gray.png` |
 | `GuiLayoutBeginHorizontal` | **`margin_x = 2`, `margin_y = 2`** |
 | `GuiLayoutBeginVertical` | **`margin_x = 0`, `margin_y = 0`** |
-| `GuiBeginScrollContainer` | `scrollbar_gamepad_focusable = true`, plus its own margin defaults |
+| `GuiBeginScrollContainer` | `scrollbar_gamepad_focusable = true`, `margin_x = 2`, `margin_y = 2` |
 | `GuiTextInput` | `allowed_characters = ""` — **empty means every character is allowed** |
 | `GuiZSet` / `GuiZSetForNextWidget` | no defaults; the z is a plain float |
 
@@ -140,33 +142,34 @@ Float constants the GUI code uses directly. These are not arguments and cannot b
 
 | value | what it is for |
 |-------|----------------|
-| `0.5` | half-width maths: `x * 0.5` for the half-width alignment option, and the `* 0.01` percentage path's companion |
-| `1.0` | the default scale, the UI-scale divisor when it is unset, and the "is it still animating" bound |
+| `0.5` | half-width maths: `x * 0.5` for the half-width alignment option |
+| `0.01` | the percentage path: `screen / ui_scale * (int)x * 0.01` |
+| `1.0` | the default scale, the UI-scale divisor when it is unset, and the upper bound of animation phases and scroll positions |
 | `0.1` | **added to normalised draw coordinates** — the draw-command builders finish each computed coordinate with `+ 0.1` |
-| `0.05` | the **animation step** — a `GuiAnimate*` advances the phase by 0.05 per frame, so a full animation is 20 frames |
+| `0.05` | the **animation step** — a widget with option `23` set advances its animation phase by 0.05 per frame, so a full animation is 20 frames |
 | `1.15` | one rung of the **scale ladder** — see below |
 | `1.2` | the other rung of the scale ladder |
 | `2.0` | used as a size and spacing constant in several places |
 
 ### The scale ladder
 
-Some widget paths pick a scale from a three-step ladder rather than from the `scale` argument:
+`GuiImageButton` picks the scale it draws at from a three-step ladder rather than only from its
+size arguments. While the button is hovered:
 
 ```
-1.0    default
 1.15   when a per-Gui flag at state+0x79 is clear
 1.2    when that flag is set
 ```
 
-An option (`0x200000`) short-circuits this and forces `1.0`. So the scale a widget ends up at is
-a function of shared per-`Gui` state, not only of the `scale` argument — two mods drawing in the
-same frame with the same `scale` argument can get different sizes.
+and `1.0` otherwise. Option `21` (`0x200000`) forces `1.0` and also suppresses the hover sound.
+So the scale a hovered image button ends up at is a function of shared per-`Gui` state, not only
+of its arguments.
 
 The two constants that change visible output most:
 
 - **`0.05` animation step**, i.e. **20 frames** for a complete animation. At 60 fps that is a
   third of a second. Any reimplementation that picks a different step will have different
-  scroll-smoothing and fade timings, and mods that tuned against the original will feel wrong.
+  widget animation timings, and mods that tuned against the original will feel wrong.
 - **`0.1` on draw coordinates.** Every draw command the GUI emits adds `0.1` to each computed
   coordinate — in the text draw builder, the image builders and the nine-piece builder alike.
   It is small, but it is applied per widget rather than per layout, so it does not cancel out
@@ -182,8 +185,9 @@ has to decide about explicitly:
   about it is configurable.
 - **The frame draws the mouse and text cursors itself**, from the three cursor assets above.
   There is no API call for them.
-- **Scroll smoothing is always on.** The scroll container always passes the animation option, so
-  the 0.05 step applies to it whether or not you want it.
+- **Scroll smoothing is always on.** The scroll container always passes the option that enables
+  it, so the animated scroll value (a quarter of the remaining distance per frame) applies
+  whether or not you want it.
 - **The UI scale is recomputed every frame** from the window size, so it is not a value you can
   set once. It is 1.0 unless something else changes it.
 
@@ -198,13 +202,13 @@ The things that are cheap to get wrong and obvious once you see them:
 - [ ] **Text line spacing is 2**, not 0.
 - [ ] **Horizontal layout margins are 2, vertical are 0.**
 - [ ] **The text input draws two carets** from two different images.
-- [ ] **A full animation is 20 frames** (0.05 per frame).
+- [ ] **A full widget animation (option 23) is 20 frames** (0.05 per frame).
 - [ ] **Draw coordinates get `+ 0.1`** before they are emitted.
 - [ ] **`GuiTooltip` hardcodes the grey nine-piece twice** and passes no `x_axis`, so a tooltip
       is always that border and never mirrors.
-- [ ] **Interactive widgets are not silent** — button, slider, text input, image-nine-piece and
-      the scroll container all play `ui/button_select` and `ui/button_click`, and option `15`
-      silences both.
+- [ ] **Interactive widgets are not silent** — button, slider, text input, image button,
+      image-nine-piece and the scroll container all play `ui/button_select` and/or
+      `ui/button_click`, and option `15` silences both on a button and a text input.
 - [ ] **`allowed_characters = ""` means "all characters allowed"**, not "none".
 
 The first four are the ones that change how every existing mod looks. The rest are smaller but

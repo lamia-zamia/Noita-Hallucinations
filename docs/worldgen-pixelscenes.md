@@ -29,8 +29,8 @@ made - they are not generated, they are placed.
 </PixelScenes>
 ```
 
-Each referenced file is itself a `<PixelScenes>` of `<PixelScene>` entries with **absolute world
-coordinates**:
+Each referenced file is itself a `<PixelScenes>` whose `<mBufferedPixelScenes>` child holds
+`<PixelScene>` entries with **absolute world coordinates**:
 
 ```xml
 <PixelScene background_filename="data/biome_impl/spliced/tree/0_background.png"
@@ -42,7 +42,7 @@ coordinates**:
 ```
 
 `pos_x`/`pos_y` are in world pixels, and they are negative because the world is centred on
-`(0,0)`. `data/biome_impl/spliced/` holds about 20 such files, each with a subdirectory of the
+`(0,0)`. `data/biome_impl/spliced/` holds a dozen such files, each with a subdirectory of the
 actual images (`.plz` = material and colour layers, `.png` = background and visual).
 
 There are three shipped variants of the master list: `_pixel_scenes.xml`,
@@ -150,7 +150,7 @@ for surfaces and puts a tree on the ones that qualify.
 | +0x24 | `tree_extra_y` | `2` | "if is_visual is true, then this will move it down by this much" |
 | +0x28 | `tree_image_file` | `""` | "filename of the png that will get loaded as the tree. The filename can have the `$[1-4]` notation in it" |
 | +0x40 | `tree_image_visual` | `""` | |
-| +0x58 | `tree_material` | 4-byte literal | the cell material the tree is made of |
+| +0x58 | `tree_material` | `"wood"` | the cell material the tree is made of |
 | +0x70 | `load_this_xml_instead` | `""` | |
 | +0x88 | `visual_offset_x` | `0.0` | |
 | +0x8C | `visual_offset_y` | `0.0` | |
@@ -229,12 +229,12 @@ only - a partially transparent mask pixel is not a candidate.
 
 ## The biome Lua hook
 
-`lua_script` on the `<Topology>` defaults to `data/scripts/biomes/NAME.lua`. It is a different
+`lua_script` on the `<Topology>` (empty by default) conventionally names `data/scripts/biomes/NAME.lua`. It is a different
 mechanism from the wang scripts, and it is called at two different times:
 
 | when | function | arguments |
 |---|---|---|
-| once per biome-map chunk at load | `init` | `(x, y, 512, 512)` |
+| once per biome-map chunk at load, only for biomes with `pixel_scene` set | `init` | `(x, y, 512, 512, 0)` |
 | once per generated chunk | `init` | `(x0, y0, 512, 512, 0)` |
 
 The per-chunk call is `0x0073c440` looking the function up **by name** - the 4-byte string it
@@ -259,9 +259,9 @@ script and dumps a spawn list.
 |---|---|
 | `_examples/` | template files for authoring a biome |
 | `biome_modifiers/` | the `BiomeModifiers` presets |
-| `caves/`, `coalmine/`, `crypt/`, `excavationsite/`, `laboratory/`, `liquidcave/`, `mountain/`, `overworld/`, `pillars/`, `pyramid/`, `rainforest/`, `snowcastle/`, `snowcave/`, `the_end/`, `trailer/`, `vault/`, `wandcave/`, `wizardcave/` | per-biome `CaveStructure` images, extra wang layers, biome-specific pixel scenes and Lua |
+| `caves/`, `coalmine/`, `crypt/`, `excavationsite/`, `laboratory/`, `liquidcave/`, `mountain/`, `overworld/`, `pillars/`, `pyramid/`, `rainforest/`, `snowcastle/`, `snowcave/`, `temple/`, `the_end/`, `trailer/`, `vault/`, `wandcave/`, `wizardcave/` | per-biome `CaveStructure` images, extra wang layers, biome-specific pixel scenes and Lua |
 | `hidden/`, `spliced/`, `static_tile/` | authored rooms and `static_tile` biome definitions |
-| `*.png` at the top level | 155 standalone pixel-scene images (rooms, arenas, shrines, the orb room) |
+| `*.png` at the top level | 155 images: the 11 `biome_map*.png` maps, and the rest standalone pixel-scene material, visual and background images (rooms, arenas, shrines, the orb room) |
 
 The top-level PNGs are the individual scenes; the subdirectories are what a biome XML refers to
 from its `<CaveStructure image_file=...>` and `<PixelScene>` entries.

@@ -95,7 +95,7 @@ every later widget on that object sees the claim and refuses hover. Three detail
 
 - The claim must come from an **enabled** button. The button builder returns a disabled/invisible
   flag, and a widget with that flag set skips claiming the mouse entirely
-  (`out/decomp-gui/008245d0.c:160`) even though it is still hit-tested.
+  (`0x008245d0:160`) even though it is still hit-tested.
 - A `GuiBeginScrollContainer` does **not** claim the mouse. It never touches the claim byte at
   all (`0x0081f870`, zero references) - it is a clip and scroll region, nothing more. The
   "invisible scroll container blocks input" recipe does not work as such; use a button.
@@ -113,18 +113,18 @@ underneath; the fix is to draw a screen rather than an overlay.
 All three are plain data files and all three are writable.
 
 - **`data/translations/common.csv`** - the game's string table, loaded at startup from this
-  exact path (`FUN_0084a700`). The lookup (`FUN_0084ab80`) is a **linear scan that returns the
-  first matching row**, so on duplicate keys the *earlier* row wins, not the later one. Relabelling
-  therefore means shadowing the vanilla row, not appending after it - and because a mod file at
-  the same path replaces the base file in the vfs, the practical recipe is to copy the vanilla
-  `common.csv` into your mod and edit the rows you want. A mod wanting to silence one message
-  sets that row's value to an empty string. This is the most surgical UI change in existence.
+  exact path (`FUN_0084a700`, which also reads `common_dev.csv`). Rows are held in a map keyed by
+  the text after the `$`, and a row whose key already exists **overwrites** the earlier one, so on
+  duplicate keys the *later* row wins. Relabelling is therefore appending rows after the vanilla
+  ones (`ModTextFileGetContent` / `ModTextFileSetContent` on the vanilla path), and a mod wanting
+  to silence one message sets that row's value to an empty string. This is the most surgical UI
+  change in existence.
 
   Note the key format. GUI labels go through `FUN_0084b3a0`, which checks for a leading `$`
-  (`0x24`): a `$`-prefixed label is looked up in this table, and **a label with no `$` is replaced
-  with an empty string**. So `GuiButton(gui, id, x, y, "Play", ...)` renders nothing, and
+  (`0x24`): a `$`-prefixed label is looked up in this table, and **any other label is used
+  verbatim**. So `GuiText(gui, 0, 0, "Play")` shows `Play`; only `$`-prefixed text is translated.
   `GuiOptionsAdd`-style option names are not the same namespace as card names (`action_*`), which
-  are looked up elsewhere. Details in [ui-modding-2.md](ui-modding-2.md).
+  are looked up elsewhere. Details in [ui-holes.md](ui-holes.md).
 
 Those are the *tunable* levers. The larger set — which components and files the UI reads at
 runtime, and therefore what a mod can replace outright — is in

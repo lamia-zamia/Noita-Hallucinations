@@ -9,29 +9,28 @@ it, including the exact field offsets of a layout frame.
 
 Addresses are for one Steam build and will move on update.
 
-## One vector, two record sizes
+## Layers own layout frames
 
-Layout frames and "layers" are pushed onto the **same** `std::vector` at `state+0x1a0`
-(begin `+0x1a0`, end `+0x1a4`, capacity `+0x1a8`), and the two record types have different
-sizes:
+The layout state is a two-level structure rooted at `state+0x1a0` (begin `+0x1a0`, end `+0x1a4`,
+capacity `+0x1a8`). The outer `std::vector` holds **layers**, 16 bytes each:
 
-| what | pushed by | record size | popped by |
-|------|-----------|-------------|-----------|
-| layout frame | `0x0081e480` via `FUN_008a9880` | **48 bytes** (12 dwords) | `GuiLayoutEnd` |
-| layer | `0x0081e7e0` via `FUN_008a9d90` | **16 bytes** (4 dwords) | `GuiLayoutEndLayer` |
+| layer field | meaning |
+|-------------|---------|
+| `+0x00`, `+0x04`, `+0x08` | begin / end / capacity pointers of the layer's **own** `std::vector` of layout frames |
+| `+0x0c` (byte) | the layer's flag; `1` for every layer the engine pushes with `GuiLayoutBeginLayer` or implicitly |
 
-The two push helpers are otherwise identical — same vector layout, same realloc-on-full logic —
-and differ only in the stride they advance the end pointer by (`+0x30` versus `+0x10`) and how
-many dwords they copy in.
+Each layout frame is **48 bytes** (12 dwords) and is pushed onto the *top layer's* inner vector
+(`0x0081e480` via `FUN_008a9880`). A layer is pushed by `0x0081e7e0` via `FUN_008a9d90` and popped
+by `GuiLayoutEndLayer`; a frame is popped by `GuiLayoutEnd`. So the frame stack is per layer: a
+layer is a scope that starts with an empty frame stack, which is what lets a tooltip or scroll
+container lay out independently of whatever layout it was opened inside.
 
 A second `std::vector<int>` at `state+0x230`/`+0x234` is pushed in lockstep with layers
 (`-1` on begin, `-4` on end) and supplies the current layer id to the draw commands.
 
-Nothing enforces that the two kinds are interleaved correctly. The engine's own code always uses
-the order *layer, layout, …, layout end, layer end*, and every consumer computes the current
-record with a hardcoded stride. If you begin a layout and then begin a layer, or end them out
-of order, the readers will interpret the wrong bytes. This is a sharp edge, not a supported
-mode — see [gui-bugs.md](gui-bugs.md).
+Nothing checks that Begin and End calls match. The failure mode is underflow, not mis-stride:
+`GuiLayoutEnd` with no frame in the top layer, or `GuiLayoutEndLayer` with no layer, moves an end
+pointer below its begin pointer — see [gui-bugs.md](gui-bugs.md).
 
 ## The layout frame
 
@@ -49,7 +48,9 @@ mode — see [gui-bugs.md](gui-bugs.md).
 | `+0x18` | margin_y |
 | `+0x1c` | accumulated content width |
 | `+0x20` | accumulated content height |
-| `+0x24`–`+0x2f` | zeroed, no reader found |
+| `+0x24` | wrap limit: item count per row (mode `4` only; `0` otherwise) |
+| `+0x28` | zeroed, no reader found |
+| `+0x2c` | wrap item counter (mode `4` only) |
 
 Lua can only ever produce mode `1` or `2`; `4` and `8` are used internally by the scroll
 container and the wrap logic.
@@ -57,18 +58,17 @@ container and the wrap logic.
 ## Beginning a layout
 
 ```c
-if (layout_begin == layout_end) FUN_0081e7e0(this, 1);   /* auto-root: push a layer */
-begin_of_top = *(int *)(end - 0x0c);
-if (*(int *)(end - 0x10) != begin_of_top) {             /* the top record is a layout frame */
-    x += *(float *)(begin_of_top - 0x24);
-    y  = *(float *)(begin_of_top - 0x20) + y;
+if (layer_begin == layer_end) FUN_0081e7e0(this, 1);    /* auto-root: push a layer */
+top = top_layer.frames_end;
+if (top_layer.frames_begin != top) {                    /* the layer already holds a frame */
+    x += *(float *)(top - 0x24);                        /* parent's x cursor */
+    y  = *(float *)(top - 0x20) + y;                    /* parent's y cursor */
 }
 ```
 
-So x and y are **relative to the enclosing layout's cursor**, not absolute. The first layout in
-a frame gets an auto-pushed layer as its base — and that path reads one dword past the 16-byte
-record it just pushed, which is a genuine uninitialised read (see
-[gui-bugs.md](gui-bugs.md)).
+So x and y are **relative to the enclosing layout's cursor**, not absolute — but only the
+enclosing layout *in the same layer*. The first layout in a frame gets an auto-pushed layer; its
+frame stack is empty, so its x and y are used as given.
 
 Margins are **stored, not applied**. They are never added to x or y at begin time. They are
 read later, as per-widget padding and as the spacing fallback.
@@ -97,7 +97,7 @@ Two sharp edges in the percentage path:
 Every widget goes through `0x0081e0d0`, which turns the widget's own coordinates into final
 ones using the current frame's cursor.
 
-With `F[]` indexing the top 48-byte record:
+With `F[]` indexing the top 48-byte frame of the top layer:
 
 1. **Half/full-width options** (unless option `0x8000` is set) shift x left by half or a full
    widget width.
@@ -106,22 +106,24 @@ With `F[]` indexing the top 48-byte record:
      `(x + F[3]) - width` (right-aligned).
    - origin-relative: `x += F[1]`, `y = (F[2] + y) - height - F[6]` — this is the branch that
      produces horizontal row flow.
-3. **Cursor advance**, skipped when the caller passes a "do not advance" flag, by `mode & 0xf`:
+3. **Alignment options** `0x400`, `0x800`, `0x1000` nudge the position relative to the cursor
+   (right, left, bottom). When one is set, steps 4 and 5 are skipped entirely.
+4. **Cursor advance**, only when bit `0x10` of the mode is clear and the caller has not passed a
+   "do not advance" flag, by `mode & 0xf`:
    - `1` horizontal: `F[3] = F[5] + x + width`
-   - `2` vertical: `F[4] = F[6] + y + height`
+   - `2` vertical: `F[4] = F[6] + y + height` (skipped under option `0x4000`)
    - `4` wrap: bump an item counter, and on overflow reset the x cursor and drop the y cursor
    - mode `8`: no branch matches, so the cursor never advances — but the accumulated extents
      still update. This is how the scroll container measures its content.
-4. **Always**: `F[7] = max(F[7], F[5] + width)`, `F[8] = max(F[8], F[6] + height)` — the
-   accumulated content size.
-5. Options `0x400`, `0x800`, `0x1000` nudge the position relative to the cursor for explicit
-   alignment.
+5. **Extents**, on the same path as step 4: `F[7] = max(F[7], F[5] + width)`,
+   `F[8] = max(F[8], F[6] + height)` — the accumulated content size.
 6. The out-parameter is the offset **from the layout origin**, not the final position.
 
 There is **no clipping in this function**. Clipping comes from the 24-byte clip/transform
 records that the scroll container pushes.
 
-With no active layout, the whole block is skipped and the widget keeps whatever position the
+With no frame in the top layer, or when that layer's flag byte is `0` and option `13` is not set,
+the whole block is skipped and the widget keeps whatever position the
 caller computed — so widgets drawn outside any layout are positioned by their own arguments
 alone.
 
@@ -141,21 +143,23 @@ cursors**, with the direction deciding how:
 - horizontal: the parent's x cursor advances by the child's width,
 - with the align flag, by a signed amount.
 
-If the stack holds only the implicit base record, it just pops.
+If the closing frame is the only one in its layer, it just pops.
 
-There is **no underflow check** — it reads the record below the end pointer before testing
-whether one exists, and it decrements the end pointer unconditionally. One `GuiLayoutEnd` too
-many leaves `end < begin`, after which the "is a layout active" test keeps passing over memory
-the layout system does not own.
+There is **no underflow check** — it computes the frame count from the top layer's inner vector
+and decrements that vector's end pointer unconditionally. One `GuiLayoutEnd` too many leaves the
+inner `end < begin`, after which the "is a layout active" test (`begin != end`) keeps passing over
+memory the layout system does not own.
 
 ## Layers
 
-`GuiLayoutBeginLayer` pushes a 16-byte record: a pointer, two zero dwords, and a byte that is
-the argument. That byte is the clip flag, and it is what distinguishes a layer record from a
-layout frame when some code reads "the byte at end-4".
+`GuiLayoutBeginLayer` pushes a 16-byte layer record: an empty frame vector (three null
+pointers) and a flag byte, set to `1`. Placement (`0x0081e0d0`) only applies the layout maths when
+the top layer's flag byte is non-zero or option `13` (`0x2000`) is set; the scroll container
+pushes a flag-`0` layer only while it draws its scrollbar.
 
-`GuiLayoutEndLayer` frees the record's pointer member, zeroes it, then decrements the layout
-vector by `0x10` and the layer vector by `4`. Neither operation is guarded.
+`GuiLayoutEndLayer` frees the layer's frame-vector storage, zeroes the three pointers, then
+decrements the layer vector by `0x10` and the layer-id vector by `4`. Neither operation is
+guarded.
 
 The layer's practical effect is on the draw pipeline: the current layer id comes from
 `state+0x230`'s top, and the draw-command builder records it. So a layer is a z/draw-group
@@ -203,8 +207,9 @@ The scroll offset is kept in three places:
 | the container frame `+0x10` | the value published for this frame |
 
 It is clamped to `[0, 1.0]` — in GUI units relative to the content extent, not a pixel or
-percentage value you set directly. The animation is always on for the Lua binding, which always
-passes the option that enables it.
+percentage value you set directly. The animated value moves a quarter of the remaining distance
+to the target each frame. The animation is always on for the Lua binding, which ORs bit `0x40000`
+of the **high** option half (option `50`) into every call.
 
 `GuiEndScrollContainer` pops the layer, the layout frame, the layer id and both 40-byte records,
 and writes the measured content size back into the persistent entry. Nesting is not checked: no

@@ -7,11 +7,11 @@ here, because it closes off a whole class of idea.
 
 ---
 
-## The `GuiOptionsAdd` dead end — verified, and worth knowing why
+## `GuiOptionsAdd` does not reach vanilla widgets
 
-This was written up here first as the unlock. It is not. In-game, `GuiOptionsAdd(gui, 2)` inside
+In-game, `GuiOptionsAdd(gui, 2)` inside
 `ModSettingsGui` affects **only the mod settings widgets drawn after that call**, and nothing
-outside. The reason is a one-line fact that is easy to miss, and I missed it:
+outside. The reason is a one-line fact that is easy to miss:
 
 **The frame-wide option word on the `gui` object is only ever read by the Lua API wrappers.**
 
@@ -19,7 +19,7 @@ The widget builders do not read the option word off the `gui` at all. They take 
 *argument*:
 
 ```c
-/* out/decomp-gui/008245d0.c:68-69 — the option word is param_5/param_6 */
+/* 0x008245d0:68-69 — the option word is param_5/param_6 */
 local_58 = param_5;
 local_5c = param_6;
 ```
@@ -37,7 +37,7 @@ All **20** merge sites in the binary are in the `0x007d`–`0x007e` band — `00
 the rest. **Zero** are in the game's own UI code. The game passes literals:
 
 ```c
-/* out/decomp/006e3410.c — every pause-menu button */
+/* 0x006e3410 — every pause-menu button */
 FUN_008245d0(..., 0x8010200, ...)      /* new game   */
 FUN_008245d0(..., 0x8010000, ...)      /* options    */
 FUN_008245d0(..., 0x8010000, ...)      /* and four more */
@@ -96,7 +96,7 @@ Three things follow, and they are the most useful facts on this page:
    or it will reset the option and claim state the game is midway through.
 
 The handle validator cannot tell a live `Gui` from a destroyed one — no vtable probe, no generation
-counter, no type tag (`out/decomp/0078c030.c`, nineteen lines) — but with the singleton proven, that
+counter, no type tag (`0x0078c030`, nineteen lines) — but with the singleton proven, that
 stopped being the interesting risk. The object outlives the frame.
 
 One caveat: `DAT_01207619`, the front-end teardown flag, zeroes this global along with the game-over
@@ -118,11 +118,9 @@ reloaded once from `DAT_012076a0`. The whole mechanism is one instruction:
 to make that happen. It is a one-frame transient, not an idle mode with no interface — and the base
 menu draws on exactly that frame, because the runner then sees an empty stack.
 
-This corrects an inference published in an earlier draft of this page, which read a
-missing `else` branch in the decompilation as a deliberate "interface absent" mode. It
-was wrong: the branch is not missing, the state is a transient. `DAT_012076a0` has **zero
-writers** in the decompiled corpus, so nothing reachable from Lua is shown to influence
-the returned state.
+`DAT_012076a0` is written only by C++ screen-transition code (`FUN_006c5e40`, `006cc030`,
+`006ccc10`, `006d0da0`, with the values 0, 1 and 2), so nothing reachable from Lua is shown to
+influence the returned state.
 
 ## The wand menu: a real trigger, but it does not pause the game
 
@@ -131,7 +129,7 @@ recovered, and it is not what you would guess — **it is the alternate-fire mod
 slot, not "grabbing an invalid wand"**:
 
 ```c
-/* out/decomp-xref/00b7ee50.c:219-227 — the whole gate */
+/* 0x00b7ee50:219-227 — the whole gate */
 iVar5 = (**(code **)(DAT_01221bc0 + 0x30))();          /* current input state */
 if ((((iVar5 + 0x18) < 0xe2 || (((iVar5 + 0xc)+0x1c >> 1) & 1) == 0)) &&
      ((iVar5 + 0x18) < 0xe6 || (((iVar5 + 0xc)+0x1c >> 5) & 1) == 0))) {
@@ -144,7 +142,7 @@ if ((((iVar5 + 0x18) < 0xe2 || (((iVar5 + 0xc)+0x1c >> 1) & 1) == 0)) &&
 whose deck needs more cards than you are holding. It then appends a card, logging `"Added "`.
 
 **Why it does not get you a paused screen:** the panel sets `DAT_0122250a`, which gates the wand
-row and the stats card inside the *player UI* — `out/decomp/00b7d8d0.c:657` calls
+row and the stats card inside the *player UI* — `0x00b7d8d0:657` calls
 `FUN_00b788e0` with it, and `:733` calls `FUN_00b5ed80`. This is the HUD's own path, on the HUD's
 own `Gui`, alongside the health bars. It is a paused *state* in the sense that you stop shooting,
 but it is not the menu stack, nothing is pushed onto it, and the base menu never stops drawing.
@@ -162,7 +160,7 @@ to an input block that exists.
 
 ### What the screen actually does, in draw order
 
-`out/decomp/006d5620.c` is 2472 lines and draws **one tab at a time**, but the Mods tab has an
+`0x006d5620` is 2472 lines and draws **one tab at a time**, but the Mods tab has an
 internal structure that matters:
 
 | lines | what |
@@ -172,17 +170,16 @@ internal structure that matters:
 | **1208** | `if (DAT_012076ac != 5) goto end` — **everything below is the Mods tab only** |
 | 1214 | a **hidden zero-size button**, id `0x3615` |
 | 1247 | widget `0x3617` |
-| 1253–1356 | the per-mod loop; **`ModSettingsGui` is called at 1335** |
+| 1253–1356 | the per-mod loop; **`ModSettingsGui` is called at 1341** |
 | 1357–1379 | end of the mods section |
 
 So when your callback runs, the tab strip is already drawn and the rest of the screen is still to
-come. That is the ordering that matters, and it is the opposite of what I assumed earlier when I
-said the tab strip was untouchable.
+come. That is the ordering that matters.
 
 ### The hidden button is the interesting part
 
 ```c
-/* out/decomp/006d5620.c:1214 */
+/* 0x006d5620:1214 */
 cVar3 = FUN_008277f0(param_1, 0x3615, 0);
 if (cVar3 != '\0') {
     piVar5 = FUN_008365e0(...);      /* load every mod's settings.lua */
@@ -190,7 +187,7 @@ if (cVar3 != '\0') {
 }
 ```
 
-and the button itself (`out/decomp/008277f0.c`) is a widget with **no rectangle at all** — both
+and the button itself (`0x008277f0`) is a widget with **no rectangle at all** — both
 position values are `0x800000`, and it is built with option `4`, which is `NonInteractive`:
 
 ```c
@@ -198,7 +195,7 @@ local_14 = 0x800000;  local_10 = 0x800000;
 FUN_0081b090(..., param_1, param_2, &local_14, &local_14, 0, 4, 0, &local_5);
 ```
 
-**That is the game using the exact mechanism I documented as unavailable.** A widget deliberately
+**That is the game using a mechanism the Lua API does not expose.** A widget deliberately
 constructed to be non-interactive and undrawable, used as a one-shot latch. It proves the engine
 has an internal idiom for "invisible, inert, clickable-never" — and it is reachable only from C++,
 because the `0x800000` sentinel and the option word are compile-time constants in that call.
@@ -231,8 +228,8 @@ is the mechanism behind the pattern people reach for. It works — but the trigg
 
 ### The rule, from the game-over screen
 
-`out/decomp/006e51e0.c` is the game-over screen. It creates its own `Gui` (`"Game over gui"`,
-`DAT_01207678`, line 130), starts its frame (141), and then at **line 145**:
+`0x006e51e0` is the game-over screen. It creates its own `Gui` (`"Game over gui"`,
+`DAT_01207678`, line 127), starts its frame (141), and then at **line 145**:
 
 ```c
 DAT_0120761b = 0;
@@ -269,93 +266,53 @@ function pointer from the stack, invoked with `(this, unused)`.
 
 ### Why it is closed anyway
 
-`FUN_008a5dd0` is called from **exactly 8 functions, and none of them is a Lua wrapper.** I grepped
-the whole `0x007d`–`0x007e` Lua band and the `0x0082` GUI subsystem: zero hits. Every push installs
+`FUN_008a5dd0` is called from **exactly 8 functions, and none of them is a Lua wrapper.** Searching
+the whole `0x007d`–`0x007e` Lua band and the `0x0082` GUI subsystem: finds zero hits. Every push installs
 a hardcoded C++ function pointer from the table above, and the dispatch at `006e3410:779` calls it
 as raw code. There is no API that pushes, and no way to make the stack non-empty from Lua.
 
-### Correcting a bad lead of mine: `ending_no_game_over_menu` does not exist
+## The translation table and the `$` prefix
 
-I previously cited `ending_no_game_over_menu` as a working suppression flag. **It is not real.**
-I searched every decompilation and the whole mods corpus:
+Every widget label goes through one transform, and it is the whole localisation contract.
 
-- in the executable: zero references. The only `game_over_menu` strings are sprite paths
-  (`006e51e0.c:199,211`, `006e6a00.c:138`).
-- in `D:\Noita_modding\mods`: zero occurrences in any `.lua` file.
+### The table
 
-It appeared in my earlier notes from the `strings.json` snake_case sweep, which only proves the
-string exists somewhere in the binary image — most likely in the shipped `common.csv` translation
-data or an unused data table, not in code. Do not chase it. The real suppression mechanism is the
-stack guard above, and it is C++-only.
+`DAT_01207c38` is the table of languages: one 180-byte (`0xb4`) record per language column of
+`data/translations/common.csv` (plus `common_dev.csv`), each holding that language's strings in
+24-byte (`0x18`) `std::string` slots at the pointer stored at `+0xa8`. A separate map
+(`DAT_01207c44`, a `std::map<std::string, int>`) takes a key to a string index. `FUN_0084ab80`
+selects the active language by comparing each record's name against a caller-supplied string and
+stores the matching record index in `DAT_01207c58`; `FUN_0084acb0` / `FUN_0084ace0` then look the
+key up in the map and return `base[index]` from the active language, falling back to the first
+language's string when the active one is empty. The population path is `FUN_0084a700`
+(`FUN_008496d0` parses a file); `FUN_0084a510` is `Text_RegisterLanguage` (error text
+`"Text_RegisterLanguage() error - Missing translation file: "`). A key that already exists in the
+map keeps its index and has its strings overwritten, so a later row replaces an earlier one.
 
-## Retracted: the "global per-frame GUI state block" was the translation table
+The `index * 0xb4 + base` pattern appears at 19 sites, including the pause menu (`006c3ec0`,
+`006e6a00`, `006c7100`, `006c7c30`), the HUD (`00b7d8d0`, `00b788e0`) and the Lua wrappers.
 
-**This section previously claimed there was a global, frame-indexed GUI state block shared by
-every `Gui`, with a byte at `+0x91` that the pause menu and a mod's widgets both read. That was
-wrong, and I am striking it rather than leaving it to mislead someone.**
+### The `$` rule
 
-### What the arithmetic actually is
+`FUN_0084b3a0` is the transform every widget label goes through:
 
-The pattern that started it:
-
-```asm
-IMUL ESI, dword ptr [0x01207c58], 0xb4      ; index * 180
-ADD  ESI, dword ptr [0x01207c38]            ; + table base
+```
+if label starts with '$':  return FUN_0084acb0(label)   // translation lookup, key = text after '$'
+else:                      return label                  // copied through unchanged
 ```
 
-I read `0x01207c58` as a frame counter. It is not. `FUN_0084ab80` — the only writer — is a
-**string-keyed search**: it walks the table comparing each slot's key string against a caller-supplied
-`std::string`, and on a match stores the slot index in `DAT_01207c58`. `FUN_0084ab60` is the
-two-instruction accessor `return DAT_01207c38 + DAT_01207c58 * 0xb4` — "give me the row for the key
-I last looked up".
+**A label that starts with `$` is looked up in the translation table; a label that does not is
+used as written.** That is why the game passes `"$menu_newgame"`-style literals everywhere, and
+why `GuiText(gui, 0, 0, "Play")` from Lua shows `Play`. When the key is missing from the map, the
+lookup returns the original `$key` text if the global flag at `DAT_01204baa` is set and an empty
+string otherwise.
 
-The slot layout, from the per-slot constructor at `FUN_0084a320`, is **eight `std::string`s** at
-`+0x00, +0x18, +0x30, +0x48, +0x60, +0x78, +0x88, +0xa8`, a float at `+0x94` initialised to `1.0`,
-and zeroed dwords to `+0xb0`. The population path, `FUN_0084a700`, pushes the literals
-`data/translations/common.csv` and `data/translations/common_dev.csv`; `FUN_0084a510` is
-`Text_RegisterLanguage` (its error path is `"Text_RegisterLanguage() error - Missing translation
-file: "`), and its failure branch names `InventoryGuiComponent`, `has_opened_inventory_edit`,
-`wallet_money_target` and `imgui` — all `InventoryComponent` field names.
+A mod's `data/translations/common.csv` can therefore add and override keys. It is a text lever
+only: it cannot express a position, a size, or an input flag. Mods in the wild use plain
+identifiers (such as `action_test_spell`) in their CSVs, because those are looked up by card or
+action name rather than through the `$` label path.
 
-So: **`DAT_01207c38` is the translation table, one 180-byte row per CSV line.** The CSV header
-`current_language,English,...` matches the eight-string row exactly. `+0x91` is a byte inside
-string #5, not a flag. Every one of those 19 `IMUL` sites — including the ones in the pause menu
-(`006c3ec0`, `006e6a00`, `006c7100`, `006c7c30`), the HUD (`00b7d8d0`, `00b788e0`) and the Lua
-wrappers — is a **`$translation_key` lookup**, which is why they all look alike and all sit in menu
-and HUD code that is full of `$menu...` string references.
-
-### Why this is worth keeping even as a retraction
-
-It removes a false lead, and it leaves one genuinely useful fact:
-
-- **The `$`-prefix rule, which is the actually useful part.** `FUN_0084b3a0` is the transform every
-  widget label goes through (`out/decomp-gui/008245d0.c:71`), and it is three instructions of logic:
-
-  ```asm
-  0084b3c0  CMP byte ptr [EAX], 0x24     ; 0x24 = '$'
-  0084b3c3  JNZ 0x0084b3d1               ; not '$' -> fail
-  0084b3c5  CALL 0x0084acb0              ; -> DAT_01207c38 + DAT_01207c58*0xb4
-  ```
-
-  **A label that starts with `$` is looked up in the translation table; a label that does not is
-  replaced with an empty string.** That is the whole localisation contract, and it is why the game
-  passes `"$menu_newgame"`-style literals everywhere and why `GuiButton(gui, id, x, y, "Play", ...)`
-  from Lua draws *nothing* unless `Play` is a key.
-
-- So a mod's `data/translations/common.csv` can add and override keys, from `init.lua`'s state, with
-  no handle and no memory access. It is a text lever only — it cannot express a position, a size, or
-  an input flag, so it does not touch the input problem.
-- **Correction to my own claim above:** I first said mods ship `$`-prefixed keys. They do not. The
-  shipped CSVs (`mods/purgatory/files/translations/common.csv`, 227 rows;
-  `mods/what_is_that/common.csv`, 3627 rows) use plain identifiers like `action_test_spell` and
-  `BUFFERTEXT`, because those are looked up by *card/action* name, not through the `$` label path.
-  The `$` path is specifically the GUI label path. Overriding a vanilla GUI string this way is
-  plausible and untested by me; overriding an action name is what the corpus actually does.
-
-So the retraction costs the input-block theory and leaves a text-customisation lever. That is the
-honest trade.
-
-### The arbitration rule, which does survive
+### The arbitration rule
 
 Every interactive builder gates on the same claim byte, and this part is verified — **9 readers,
 3 writers, 1 reset**, all per-`Gui`:
@@ -383,11 +340,10 @@ state, and the game is not on the Lua side of it.
 
 ## Pausing the game yourself: not reachable
 
-Not through the modding API, and I checked the two things that look like they would do it.
+Not through the modding API. Two things look like they would do it; neither does.
 
-There is no pause function. Sweeping all 375 API names for `pause|freeze|stop|halt|sim` returns
-only `GameGetRealWorldTimeSinceStarted`, `GameGetDateAndTime*`, `SetTimeOut` and three
-`GameGetOrb*` calls. The pause is owned by the menu stack.
+There is no pause function. Sweeping all 375 API names for `pause|freeze|stop|halt|sim` finds
+nothing relevant (the only substring hit is `GamePosToPhysicsPos`). The pause is owned by the menu stack.
 
 - **`mPauseSimulation` and `mGuiDisabled`** are fields of the cheat-style game-effect component,
   beside `mPlayerNeverDies`, `mFreezeAI` and `mFogOfWarOpenEverywhere` — exactly the input block
@@ -395,7 +351,8 @@ only `GameGetRealWorldTimeSinceStarted`, `GameGetDateAndTime*`, `SetTimeOut` and
   Each of the twelve functions that mentions them pulls in 32–36 field names *including*
   `mPauseSimulation`, which is the signature of a schema accessor, not a consumer. A schema with
   nothing reading it.
-- **The 86-entry `GAME_EFFECT` enum is fully recovered** (`0x0100c6ec`–`0x0100ccd4`) and contains
+- **The `GAME_EFFECT` enum is fully recovered** (`0x0100c6ec`–`0x0100ccd4`: 85 names, from
+  `ELECTROCUTION` to the `_LAST` terminator) and contains
   no pause member. Closest relatives are `NO_WAND_EDITING`, `NO_HEAL`, `NO_DAMAGE_FLASH` and the
   `PROTECTION_*` family — all gameplay effects, applied via `GetGameEffectLoadTo`.
 

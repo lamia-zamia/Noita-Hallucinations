@@ -19,12 +19,12 @@ behaviour is stable across updates; addresses are not.
 | `0x0086b9f0` | `Biome::LoadFromFile` - parses one `data/biome/NAME.xml`. Asserts `Topology` / `Materials`, sets the runtime type at `+0x04` |
 | `0x0086f4f0` | `BiomeMaterials::LoadFromFile` - resolves `material_name` to a handle, sorts by `material_index` |
 | `0x0086c240` | the sort comparator: literally `rec->material_index < rec->material_index` |
-| `0x00867de0` | wang-script loader (`data/scripts/wang_scripts.csv`) |
-| `0x0086b830` | procedural cave carver - builds the map for a `<BitmapCaves>` biome |
-| `0x00867c90` | wang map builder entry for a template-PNG biome |
-| `0x00870de0` / `0x008704c0` | the herringbone wang-map builder |
+| `0x00867de0` | wang map loader: expands the `wang_template_file` (via `0x00867500` and the herringbone generator `0x00866b90`) and attaches the biome's `lua_script`. It does not read `data/scripts/wang_scripts.csv` (that is read by `0x006e9f30` and `0x006afaa0`) |
+| `0x0086b830` | builds the map for a `<BitmapCaves>` biome: a `size_x` x `size_y` map filled with weight 1.0, cached by the `BitmapCaves` name, then carved by `0x00868f70` |
+| `0x00867c90` | map builder for a procedural biome's `bitmap_noise_file` |
+| `0x00870de0` / `0x008704c0` | the wang-map builder (template image -> the four planes) |
 | `0x0092a260` | the four-neighbour wang tile resolve |
-| `0x00868f70` | `WangTileMap::Randomise` - inline Lehmer RNG |
+| `0x00868f70` | the cave carver - reads the `BitmapCaves` record, inline Lehmer RNG |
 | `0x00879090` | biome-map image loader |
 | `0x0087edd0` | pixel-scene table loader (`data/biome/_pixel_scenes.xml`) |
 | `0x0087f3d0` | pixel-scene prefab path |
@@ -89,9 +89,9 @@ behaviour is stable across updates; addresses are not.
 
 | struct | size | where | default table |
 |---|---|---|---|
-| `Biome` | 0x2E8 + vtable | one per biome | [worldgen-biomes.md](worldgen-biomes.md) |
+| `Biome` | 0x2F0 | one per biome | [worldgen-biomes.md](worldgen-biomes.md) |
 | `BiomeModifiers` | 0x18 | `Biome + 0x170` | [worldgen-biomes.md](worldgen-biomes.md) |
-| `BitmapCaves` (`CavesSetup`) | 0x2F0 | `Biome + 0x00` | [worldgen-terrain.md](worldgen-terrain.md) |
+| `BitmapCaves` (`CavesSetup`) | at least 0xB8 | pointer at `Biome + 0xC0` | [worldgen-terrain.md](worldgen-terrain.md) |
 | `CaveStructure` | 0x3C | inside `BitmapCaves + 0x7C` | [worldgen-terrain.md](worldgen-terrain.md) |
 | `MaterialComponent` | 0x84 | flat array at `BiomeMaterials + 0x08` | [worldgen-terrain.md](worldgen-terrain.md) |
 | `FossilComponent` | 0x48 | flat array | [worldgen-terrain.md](worldgen-terrain.md) |
@@ -101,9 +101,9 @@ behaviour is stable across updates; addresses are not.
 
 ### The runtime biome record
 
-An earlier version of this table was largely wrong. `+0x00` is the vftable, `+0x08` is the `name`
-string, `+0xC4..+0xC7` are the four `noise_*_edges` bools (defaulting true, false, true, false),
-`+0x220` is `game_enemy_hp_scale` and `+0x268` is `mMultiplierPerlin`. What the generation code
+`+0x00` is the vftable, `+0x08` is the `name`
+string, `+0xC4..+0xC7` are the four `noise_*_edges` bools (defaulting true, true, false, false),
+`+0x218` is `game_enemy_hp_scale`, `+0x220` is `noise_type` and `+0x268` is `mMultiplierPerlin`. What the generation code
 actually uses:
 
 | offset | meaning |
@@ -111,7 +111,7 @@ actually uses:
 | +0x00 | `Biome::vftable` |
 | +0x04 | **biome type**: 0 procedural, 1 bitmap, 2 wang tile |
 | +0x08 | the `name` std::string |
-| +0xC0 | unregistered zero slot; used as a pointer to the wang template record |
+| +0xC0 | unregistered slot, zero until set: pointer to the biome's `BitmapCaves` record (its `+0x1C`/`+0x20` are `size_x`/`size_y`, its `+0x88` the Lua script) |
 | +0xC4 / +0xC5 / +0xC6 | `noise_biome_edges` / `big_noise_biome_edges` / `fat_biome_edges` |
 | +0xC7 | `skip_edge_textures` |
 | +0x1B0 | the loaded `bitmap_data` bitmap (its path is at +0x198) |
@@ -120,6 +120,8 @@ actually uses:
 | +0x1D4 | `mBitmapNoise` - the built wang/cave map |
 | +0x1D8 | `lua_script` |
 | +0x1F0 | `pixel_scene` |
+| +0x220 | `noise_type` (shape switch in the noise shaping: 1, 2, 3) |
+| +0x224 | `mInsideNoiseType` |
 | +0x228 | `mInsideNoiseFBM` |
 | +0x268 | `mMultiplierPerlin`, tested `!= 0.0` by the noise shaping |
 | +0x2A4 | the materials pointer (unregistered, but zero-initialised) |
@@ -153,8 +155,7 @@ Audited against `0x0073c220`, `0x0073b040`, `0x0073c440`, `0x0073e950` and `0x00
 | +0xBC / +0xC0 | a vector of 4-byte pointers |
 | +0xC8 | finished flag, set under a lock |
 
-Two rows in an earlier version of this page were inverted: `+0x78` is *overwrite*, not *skip*,
-and `+0x79` is a skip-generation flag set by the save loader, not a physics-pass flag.
+`+0x78` is *overwrite* (not *skip*), and `+0x79` is a skip-generation flag set by the save loader.
 
 **A chunk holds two separate 1 MiB buffers**, both `512*512*4`: one array of cell *pointers* and
 one flat `uint32` *material* array. The sub-block levels are 64x64 (`Allocate64x64`) and 4x4 (the
@@ -166,11 +167,11 @@ coarse grid).
 |---|---|
 | +0x00 | x in pixels |
 | +0x04 | y in pixels |
-| +0x08 | 0 procedural, 1 wang; reused as a pointer by the rect query |
-| +0x0C | ditto |
+| +0x08 | tile width in tiles (1 for wang records, 0 for procedural); the Lua call receives it times 10 |
+| +0x0C | tile height in tiles (same values); the Lua call receives it times 10 |
 | +0x10 | a byte read from wang plane D |
 | +0x14 | **wang script id** (colour - 1) |
-| +0x18 | "needs the extra decoration pass" |
+| +0x18 | set for procedural records: a spatial rect query must succeed before the Lua call |
 | +0x1C | owning biome |
 
 ### `CellMaterial` fields that matter here
@@ -190,15 +191,13 @@ coarse grid).
 | enum | values | where |
 |---|---|---|
 | `BIOME_TYPE` (`type`) | `BIOME_PROCEDURAL` = 0, `BIOME_BITMAP` = 1, `BIOME_WANG_TILE` = 2 | `Biome + 0x04` |
-| `NOISE_TYPE` (`noise_type`) | `IQ2_SIMPLEX1234`, `IQ_SIMPLEX`, `SIN_CAPPED_EVERYTHING`, `SIN_CAPPED_SIMPLEX` | `Biome + 0x228` |
-| inside-noise generator (`mInsideNoiseType`) | `IQNoise`, `DirtyPeeNoise`, `QemNoise`, `WhiteNoise`, `MixNoise`, `SimplexNoise`, `STB_Perlin`, `FastBlockNoise`, `SimplexNoise1234` | `Biome + 0x230` |
-| `FOG_OF_WAR_TYPE` (`fog_of_war_type`) | `DEFAULT`, `HEAVY_CLEAR_AT_PLAYER`, `HEAVY_CLEAR_WITH_MAGIC`, `HEAVY_NO_CLEAR` | `Biome + 0x16C` |
-| `GENERAL_NOISE` | same generator list, used by the gradient noise | - |
+| `NOISE_TYPE` (`noise_type`) | `IQ2_SIMPLEX1234` = 0, `IQ_SIMPLEX` = 1, `SIN_CAPPED_EVERYTHING` = 2, `SIN_CAPPED_SIMPLEX` = 3 | `Biome + 0x220` (default 0) |
+| `GENERAL_NOISE` (`mInsideNoiseType`) | `IQNoise` = 0, `DirtyPeeNoise` = 1, `QemNoise` = 2, `WhiteNoise` = 3, `MixNoise` = 4, `SimplexNoise` = 5, `STB_Perlin` = 6, `FastBlockNoise` = 7, `SimplexNoise1234` = 8 | `Biome + 0x224` (default 5) |
+| `FOG_OF_WAR_TYPE` (`fog_of_war_type`) | `DEFAULT` = 0, `HEAVY_CLEAR_AT_PLAYER` = 1, `HEAVY_CLEAR_WITH_MAGIC` = 2, `HEAVY_NO_CLEAR` = 3 | `Biome + 0x16C` (default 0) |
 
-The numeric values of these are not recovered - the enum tables are game data, not code, for
-the same reason `GUI_OPTION` is not (see [enums.md](enums.md)). The names and the fact that
-`BIOME_TYPE` is 0/1/2 in that order are established from the three-way switch at `0x0087d0e0`
-and the order of the strings.
+The values are the cases of the enum-to-name functions the config system uses to write each
+enum, so they are exact. (Unlike `GUI_OPTION`, which is a Lua-side table - see
+[enums.md](enums.md).)
 
 ## Data-file inventory
 
@@ -214,10 +213,10 @@ and the order of the strings.
 | `data/biome_impl/spliced/` | authored rooms, merged by the pixel-scene splicer |
 | `data/biome_impl/static_tile/` | `static_tile` biome definitions and their Lua |
 | `data/biome_impl/biome_modifiers/` | `BiomeModifiers` presets |
-| `data/biome_impl/*.png` | 155 standalone scene images |
+| `data/biome_impl/*.png` | 155 images: the 11 `biome_map*.png` maps and the standalone scene images |
 | `data/wang_tiles/*.png` | wang templates |
 | `data/wang_tiles/extra_layers/` | wang overrides, composited on top of the template |
-| `data/scripts/wang_scripts.csv` | **colour -> Lua function**, 31 entries |
+| `data/scripts/wang_scripts.csv` | **colour -> Lua function**, 30 entries |
 | `data/scripts/wang_scripts_removed.txt` | three deliberately disabled entries |
 | `data/scripts/biome_map.lua` | the map script `BIOME_MAP` points at |
 | `data/scripts/biome_modifiers.lua` | the full modifier table, 41 KB |
@@ -269,18 +268,12 @@ If you are writing a world generator that produces Noita-compatible worlds, the 
 
 Stated once here rather than repeated on each page.
 
-- The numeric values of `BIOME_TYPE`, `NOISE_TYPE`, the inside-noise generators and
-  `FOG_OF_WAR_TYPE`. They are game-data enums; the names are in the executable, the integers are
-  not. `BIOME_TYPE` being 0/1/2 in registration order is established from the switch.
-- Two `.rdata` float constants behind the `mInsideNoise*` and `mGradient*` default pairs.
-- Two 4-character string literals that are field *names* (`FossilComponent`'s third field, and two
-  pixel-scene attributes) which sit in padding gaps no artefact covers.
 - The cell type names for 1, 2 and 4. Type 3 is established as "not an object"; the others are
   only established as "allocates 0x40 / 0x3C / 0x28 bytes".
 - What `0xFFC0FFEE` does. It is provably reserved - the game refuses it in `materials.xml` "because
   it has a special meaning in the wang map" - and provably present in four shipped templates, 2801
   pixels in total. Its effect is not identified.
-- Whether any `wang_scripts.csv` colour is ever reached. None occurs in any shipped template, and
-  the loader is outside the recovered band, so "dead in vanilla" is a statement about the data, not
-  a proven statement about the code.
+- How a template colour is mapped to a `wang_scripts.csv` row, and how the CSV and the per-biome
+  `RegisterSpawnFunction` registrations are combined. Fourteen of the 30 CSV colours occur in
+  shipped templates; the reader of the CSV is outside the recovered band.
 - Whether `add_perlin_scale_y` is dead or read on a path not recovered.

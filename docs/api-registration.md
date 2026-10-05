@@ -15,9 +15,9 @@ lua_setfield(L, K, "EntityLoad");
 
 ## The other thirteen registrars
 
-The binary contains thirteen other functions that call `lua_setfield`. None of them installs
-anything a mod can call, because they set the field on an engine object rather than on the
-global environment.
+The binary contains thirteen other functions that call `lua_setfield`. Apart from the
+Lua-state builder, none of them installs anything a mod can call, because they set the field on an
+engine object rather than on the global environment.
 
 | address | what it registers | on what |
 |---------|-------------------|---------|
@@ -26,8 +26,8 @@ global environment.
 | `0x007a0390` | MetaObject / component-type reflection table | the reflection registry |
 | `0x007a0770` | MetaObject reflection with validation | the reflection registry |
 | `0x007ec750` | `___main`, `in_function_signatures` on `GlobalLuaManager` | see below |
-| `0x007ef130` | `do_mod_appends`, `loadfile`, `print`, `print_error` | globals (the mod-append bootstrap) |
-| `0x00838c70` | clears `OnMagicNumbersAndWorldSeedInitialized` to `nil` | globals |
+| `0x007ef130` | `do_mod_appends`, `loadfile`, `print`, `print_error`, then the nine init-only `Mod*` functions | globals (the Lua-state builder) |
+| `0x00838c70` | after dispatching `OnMagicNumbersAndWorldSeedInitialized`, sets the nine init-only `Mod*` globals to `nil` in every mod's state | globals |
 | `0x009d65f0` | `_ConfigGunActionInfo_ReadToGame` | gun internals |
 | `0x00b294a0` | gun-system callbacks: `RegisterGunAction`, `OnActionPlayed`, `BeginProjectile`, `StartReload`, … | `GunSystem` (and `RegisterGunAction` as a global) |
 | `0x00b2bcc0` | `Reflection_RegisterProjectile`, `GunSystem::GetGunActionInfos` | `GunSystem` (and `RegisterGunAction` as a global) |
@@ -66,9 +66,9 @@ tools_modding/lua_api_documentation.html         when out_html is set
 tools_modding/lua_api_documentation.json         when out_json is set
 ```
 
-It also emits a `Current modding API version: ` line, a `read_globals = { … }` block, and
-annotations naming the engine source files the API is defined in (`lua\lua_api.cpp`,
-`misc_utils\modding.cpp`, `component_updators\gun_system.cpp`).
+It also emits a `Current modding API version: ` line and a `read_globals = { … }` block listing
+every global name. The engine source file names it carries (`lua\lua_api.cpp`,
+`misc_utils\modding.cpp`, `component_updators\gun_system.cpp`) are not written to any output.
 
 ### Why this matters
 
@@ -77,5 +77,5 @@ the substituted defaults, the shared global state. All of that is in
 [how-the-api-works.md](how-the-api-works.md) and [api-reference.md](api-reference.md).
 
 It cannot tell you the *values* of the enum tables, because those live in game data rather
-than in code. The generator walks the live Lua state, so it emits them. See
-[enums.md](enums.md).
+than in code. The generator does not emit them either - it only formats the signature strings -
+but the tables are plain Lua in the data tree. See [enums.md](enums.md).

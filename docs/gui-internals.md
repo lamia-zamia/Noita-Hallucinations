@@ -86,11 +86,13 @@ for writing mods:
 | `+0x28` | font map: string -> measured text record |
 | `+0x64` | red-black map: widget id -> persistent widget state |
 | `+0xb8`, `+0x160` | initialised to `-1` (frame stamps) |
-| `+0x1a0`, `+0x1a4`, `+0x1a8` | layout stack: begin, end, capacity |
+| `+0x1a0`, `+0x1a4`, `+0x1a8` | layer stack: begin, end, capacity; each 16-byte layer owns a vector of 48-byte layout frames |
 | `+0x1ac`, `+0x1b0`, `+0x1b4` | child bounding-box accumulators (2 stacks, 40-byte records) |
 | `+0x1b8`, `+0x1bc`, `+0x1c0` | scroll-container frames (40-byte records) |
 | `+0x1d0`, `+0x1d4` | **id stack**: begin, end. `std::vector<uint64>` |
-| `+0x1dc` | frame counter, initialised to `0x80000000` |
+| `+0x1dc` | frame counter, initialised to `0` |
+| `+0x1e0` | initialised to `0x80000000` |
+| `+0x1f8` | frame stamp, initialised to `-1` |
 | `+0x1e4`, `+0x1e8` | mouse x, y |
 | `+0x1ec`, `+0x1f0` | previous-frame mouse x, y |
 | `+0x1f6` | mouse-down flag |
@@ -130,8 +132,8 @@ records at `+0x224` are set by `FUN_008a9f10` with a rectangle of `(1, 0, 1, 1, 
 2. Calls the real `NewFrame`, which recomputes the UI scale, updates the frame counter, reads
    the mouse, clears the "a widget claimed the mouse" flag, and lazily allocates a
    process-global 416-byte container.
-3. Separately builds a zeroed 40-byte widget record and copies it into the block at
-   `0x01154b98`–`0x01154bcc`. That block is a **scratch** record the ten Lua widget wrappers build
+3. Separately builds a default 56-byte widget record (zero, with a flag word and a white
+   colour) and copies it into the block at `0x01154b98`–`0x01154bcc`. That block is a **scratch** record the ten Lua widget wrappers build
    into before committing. The record `GuiGetPreviousWidgetInfo` actually returns is a *different*
    one, at `gui+0x38` — see "The previous-widget record" below.
 
@@ -139,13 +141,13 @@ records at `+0x224` are set by `FUN_008a9f10` with a rectangle of `(1, 0, 1, 1, 
 
 | state | reset by `GuiStartFrame`? |
 |-------|---------------------------|
-| `gui+0x08` frame options, low half | yes, to 0 |
+| `gui+0x08` frame options, low half | yes, to 1 |
 | `gui+0x0c` frame options, high half | yes, to 0 |
 | `gui+0x10` / `+0x14` pending options | yes — to 1 and 0, i.e. *option bit 0 on* |
-| `gui+0x1c`–`+0x28` colour | fully: white with alpha 1.0 |
+| `gui+0x1c`–`+0x28` colour | fully: white with alpha 1.0 (`+0x18` is not written) |
 | `gui+0x2c` frame z | yes, to 0 |
 | `gui+0x30` / `+0x34` pending z and its flag | yes |
-| `gui+0x38`–`+0x84` previous-widget record | yes, fully zeroed |
+| `gui+0x38`–`+0x84` previous-widget record | yes, to the default record (zero, with the scale word `1.0`) |
 | **layout stack** `state+0x1a0`/`+0x1a4` | **no** |
 | **id stack** `state+0x1d0`/`+0x1d4` | **no** |
 | **layer stack** `state+0x230`/`+0x234` | **no** |
@@ -282,11 +284,11 @@ which is the useful starting point for reading anything further.
 | `GuiDestroy` | `0x007d9c90` | one virtual call; no unwinding |
 | `GuiStartFrame` | `0x0081dd50` → `0x008187d0` | the real NewFrame is the second one |
 | `GuiGetScreenDimensions` | `0x007e2da0` | `window_size / ui_scale`; 0,0 on any failure |
-| `GuiGetPreviousWidgetInfo` | `0x00563630` + reads `gui+0x38` | returns 11 values from the global record |
+| `GuiGetPreviousWidgetInfo` | `0x00563630` + reads `gui+0x38` | returns 11 values from the `gui`'s own record (a static default record if the handle is invalid) |
 | `GuiIdPush` | `0x008274d0` | FNV-1a-64, cap 1024 |
 | `GuiIdPop` | `0x007dbf00` | `end -= 8`, unchecked |
 | `GuiIdPushString` | `0x00817d50` + `0x008274d0` | hashes the string bytes, then pushes |
-| `GuiOptionsAdd` / `Remove` / `Clear` | `0x007da320` / `0x007da630` / `0x007da940` | `+0x0c` only |
+| `GuiOptionsAdd` / `Remove` / `Clear` | `0x007da320` / `0x007da630` / `0x007da940` | `+0x08`/`+0x0c`; Clear sets them to `1`/`0` |
 | `GuiOptionsAddForNextWidget` | `0x007dac30` | `+0x10` and `+0x14` |
 | `GuiZSet` / `GuiZSetForNextWidget` | `0x007db2b0` / `0x007db5b0` | `+0x2c` / `+0x30`+`+0x34` |
 | `GuiColorSetForNextWidget` | `0x0042b6e0` | writes `+0x1c`–`+0x28` |
@@ -302,7 +304,7 @@ which is the useful starting point for reading anything further.
 | `GuiTooltip` | `0x008291b0` | reads the **global** previous-widget record |
 | `GuiLayoutBeginHorizontal` / `Vertical` | `0x0081e480` | **the same function**, direction is an argument |
 | `GuiLayoutEnd` | `0x0081e710` | |
-| `GuiLayoutBeginLayer` / `EndLayer` | `0x0081e7e0` / `0x0081e8b0` | 16-byte records, see [gui-layout.md](gui-layout.md) |
+| `GuiLayoutBeginLayer` / `EndLayer` | `0x0081e7e0` / `0x0081e8b0` | 16-byte layer records, see [gui-layout.md](gui-layout.md) |
 | `GuiLayoutAddHorizontalSpacing` | `0x007e1e90` | **ignores its amount argument** |
 | `GuiLayoutAddVerticalSpacing` | `0x007e21b0` | uses it |
 | `GuiBeginAutoBox` | `0x008202d0` | pushes an empty bounding-box accumulator |

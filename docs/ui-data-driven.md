@@ -4,8 +4,7 @@ Companion to [ui-modding.md](ui-modding.md) and [ui-modding-2.md](ui-modding-2.m
 cover drawing your own UI and getting into the pause menu. This one covers a different question:
 **which parts of the vanilla interface are themselves driven by data a mod can supply?**
 
-The short answer is that the separation people assume — "the vanilla UI is code, my UI is data" —
-is not true. Several vanilla screens read components, component fields, XML files and directory
+The short answer is that the vanilla UI is not purely code: several vanilla screens read components, component fields, XML files and directory
 listings at runtime, and a mod can write all of them.
 
 ## The map
@@ -53,7 +52,7 @@ reflection table, and `InventoryComponent` appears in the community `component-e
 component list with its fields enumerated.
 
 **Caveat, and it is not small:** this component is *not* the player's wand inventory. The wand row
-iterates a C++-owned vector (`out/decomp/00b788e0.c:111-118`) reached through a singleton, and each
+iterates a C++-owned vector (`0x00b788e0:111-118`) reached through a singleton, and each
 element goes through typed getters, not a component scan. So `InventoryComponent` gives you a *new*
 grid; it does not let you add a wand slot. It is also unproven that the container UI runs for an
 arbitrary entity rather than only for the specific owners the game creates it on — the decompilation
@@ -87,9 +86,8 @@ reads it back, so these are not spawn-time-only values.
 
 Two facts worth knowing that are not in any guide:
 
-- **No mod in the corpus sets `is_perk="1"`.** Every one that wants a plain status badge explicitly
-  sets `is_perk="0"`. The field demonstrably changes behaviour, and the community has concluded it
-  does not want the perk treatment.
+- **`is_perk` is used both ways in the wild.** Apotheosis, Hydroxide and copis_things set it to
+  `1` for perk-style icons, while new_enemies sets `is_perk="0"` on its plain status badges.
 - **The overflow popup is a different index into the same vector.** Past a certain count, icons are
   replaced by a single "and N more" entry that opens a popup listing them. Mods that add many icons
   hit this without noticing.
@@ -150,9 +148,9 @@ you can also mark an *existing* vanilla perk or spell as newly acquired. You can
 
 ## The wand stats card: values yes, rows no
 
-The card is 27 stat rows, and each row is a fixed triple baked into one function: a component field
-name, a `$inventory_*` label, a `$inventory_*_tooltip`, and an `icon_<field>.png` path built from a
-hardcoded prefix.
+The card is a fixed list of stat rows, and each row is baked into one function: a component field
+name, a `$inventory_*` label, for some rows a `$inventory_*_tooltip` (the function references nine),
+and an `icon_<field>.png` path built from a hardcoded prefix.
 
 - **You can change any value** — it reads the wand's real components (`gunaction_config`,
   `AbilityComponent`, `gun_config`). Alter a wand's `damage_projectile` and the card shows it.
@@ -160,12 +158,12 @@ hardcoded prefix.
   the literal list. A stat the game does not know about is invisible on the card.
 
 One trap if you go here: the card reads *runtime* field names while the XML exposes *different*
-attribute names — `gun_capacity` on the card is `deck_capacity` in the XML, `damage_slice` is
-`damage_slice_add`. Both spellings are in the binary.
+attribute names — `gun_capacity` on the card is `deck_capacity` in the XML, `damage_melee` is
+`damage_melee_add`. Both spellings are in the binary.
 
-Six rows — `damage_melee`, `damage_slice`, `damage_drill`, `damage_curse`, `damage_holy`,
-`damage_healing` — **never appear as XML attributes anywhere in the vanilla tree.** They are fed by
-a synthesised aggregate, so setting them directly may do nothing.
+Five rows — `damage_slice`, `damage_drill`, `damage_curse`, `damage_holy`,
+`damage_healing` — **never appear as XML attributes anywhere in the vanilla tree**, so there is no
+shipped example of setting them.
 
 ## Perks are three different systems
 
@@ -191,9 +189,9 @@ shadows `data/`. So replacing the **file** — not the path — changes what the
 neither text nor a number, and it is completely underexploited.
 
 - **HUD**: `data/ui_gfx/hud/{health,mana,jetpack,potion,reload,fire_rate_wait,money,orbs}.png` and
-  the ten `colors_*.png` bar variants.
+  the nine `colors_*.png` bar variants.
 - **Inventory**: `data/ui_gfx/inventory/{background,inventory_box,inventory_colors,icon_info,
-  icon_danger,icon_warning,hover_info_empty_slot}.png`, nine `item_bg_*.png` action-type
+  icon_danger,icon_warning,hover_info_empty_slot}.png`, the `item_bg_*.png` action-type
   backgrounds, and 27 `icon_<stat>.png`.
 - **Pause menu**: `data/ui_gfx/pause_menu/{noita_logo,help_keyboardmouse,help_gamepad360}.png`.
 - **Status column**: `data/ui_gfx/status_indicators/satiation_00..06.png`, `bg_ingestion.png`.

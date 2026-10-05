@@ -27,8 +27,7 @@ and it is the same object every menu screen draws into.** That makes it usable a
 inside `ModSettingsGui` — you can put a full-screen opaque panel on the options screen's own `gui`
 and it will be composited correctly with the rest of the screen.
 
-It does **not** make vanilla widget geometry readable. See the next section, which is a correction
-of an earlier version of this page.
+It does **not** make vanilla widget geometry readable; see the next section.
 
 ## Screen detection: you are not as blind as advertised
 
@@ -65,18 +64,16 @@ There is no predicate for "which menu screen am I on" beyond these three. In par
 nothing for the progress menu, the world-select screen or the game-over screen. For those, see
 "Detecting an arbitrary screen" below.
 
-## Reading a vanilla widget's rectangle: not possible, and here is why
+## Reading a vanilla widget's rectangle: not possible
 
-**An earlier version of this page claimed this worked. It does not.** The claim was that
-`GuiGetPreviousWidgetInfo(gui)`, called with the options screen's own `gui` inside
-`ModSettingsGui`, returns the rectangle of a widget the *game* drew. That is a false reading of the
-mechanism, and it is worth spelling out because the mechanism looks like it should work.
+It looks as though `GuiGetPreviousWidgetInfo(gui)`, called with the options screen's own `gui` inside
+`ModSettingsGui`, returns the rectangle of a widget the *game* drew. It does not, and the mechanism looks like it should.
 
 ### What the function actually does
 
 `GuiGetPreviousWidgetInfo(gui)` returns eleven values — `clicked`, `right_clicked`, `hovered`, then
 `x, y, width, height` and `draw_x, draw_y, draw_width, draw_height`. The record it reads is
-**per-`gui`, at `gui + 0x38`** (`out/decomp/007e3b40.c:129`, with a fallback to the static
+**per-`gui`, at `gui + 0x38`** (`0x007e3b40:129`, with a fallback to the static
 `DAT_01225fb0` only when the handle fails validation at `:134`).
 
 That part is correct, and it is the part that makes the claim look reasonable: the record is a field
@@ -118,12 +115,12 @@ too, so it does not help. It is read by `GuiTooltip`.
 Because the game *does* pass its own `gui`, and because input on any one `gui` is awarded by draw
 order, you can influence which vanilla widget gets the cursor. The options screen draws like this:
 
-| lines of `out/decomp/006d5620.c` | what |
+| lines of `0x006d5620` | what |
 |---|---|
 | 235–460 | the tab strip |
 | **1208** | `if (DAT_012076ac != 5) goto end` — everything below is the Mods tab only |
 | 1214 | a hidden zero-size button, id `0x3615` |
-| 1253–1356 | the per-mod loop; `ModSettingsGui` is called at **1335** |
+| 1253–1356 | the per-mod loop; `ModSettingsGui` is called at **1341** |
 
 Your callback runs *after* the tab strip and *before* the end of the Mods tab. So a full-screen
 interactive widget drawn at the top of your `ModSettingsGui` takes the cursor away from everything
@@ -200,7 +197,7 @@ draw — see [ui-holes.md](ui-holes.md).
 
 ### You cannot consume input either
 
-All thirteen `Input*` functions are pure queries — `lua_tointeger`, one virtual call on the global
+All twelve `Input*` functions are pure queries — `lua_tointeger`, one virtual call on the global
 input service, `lua_pushboolean`. There is no `InputSet*`, no consume, no block, no capture, no
 inject anywhere in the 375-function API. The GUI's own input state (`state+0x1f6` mouse-down,
 `+0x1f7` clicked, `+0x1fd` claimed) is **derived state on its own object**, cleared by its own
@@ -274,7 +271,7 @@ per-`gui` and there is no consume API, so a vanilla screen underneath your overl
 the modding API sits above it.
 
 **New tabs and new top-level menu entries.** The options screen's tab list is a fixed C++ sequence
-of literals (`0x35a9`–`0x361b` for the options tabs, `0x3667`–`0x3673` for the main menu). There is
+of literals (`0x35a9`–`0x361b` for the options rows, `0x3667`–`0x3673` for the main menu). There is
 no API to add one, and no data file that lists them. A mod that wanted its own settings *category
 in the pause menu itself* has to draw its own screen.
 
@@ -289,7 +286,7 @@ helper has **no callers in the `0x007d`-`0x007e` Lua wrapper band at all**; all 
 menu screens, installing 12 fixed C++ screens.
 
 This matters more than it looks, because a non-empty stack is the game's own screen-suppression
-mechanism: `out/decomp/006e51e0.c:145-148` and `out/decomp/006e3410.c:91` both bail out early if
+mechanism: `0x006e51e0:145-148` and `0x006e3410:91` both bail out early if
 the stack is not empty, so pushing a screen makes the game-over menu and base pause menu **draw
 nothing**. It works, and it is unreachable from Lua. Full map in [ui-holes.md](ui-holes.md).
 

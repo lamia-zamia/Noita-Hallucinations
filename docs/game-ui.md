@@ -30,7 +30,7 @@ list of four row types. Nothing else is in it.
 | row kind | function | behaviour |
 |---|---|---|
 | section heading | `0x006db930` | one text row, flag `0x4000000`; foldable headings also nudge a fold animation by +8 px when the state changes |
-| section heading (variant) | `0x006db820` | same plus a float (−3.3 at every call site) passed to the text widget |
+| section heading (variant) | `0x006db820` | same plus a float (−5.2 at every call site) passed to the text widget |
 | toggle / checkbox | `0x006c87c0` | draws a button, and on click does `*value = (*value == 0)` — **writes straight into the config struct field** |
 | slider | `0x006c6470` | forwards to the real slider `0x00824e70`, which computes `(*value − min) / (max − min)` for the fill |
 | plain button | `0x008245d0` | everything that is not a toggle or a slider |
@@ -84,7 +84,7 @@ Full formulas, per-screen layout and the bugs: [ui-screens.md](ui-screens.md).
 ## Tunables
 
 The UI's pixel constants are game data, in `data/magic_numbers.xml`, and are readable and
-editable — they are not compiled into the binary. 47 UI-flavoured tunables exist, of which
+editable. 40 UI-flavoured tunables are set there, of which
 the important ones are:
 
 | tunable | default | what it moves |
@@ -106,29 +106,24 @@ the important ones are:
 | `UI_PAUSE_MENU_LAYOUT_TOP_EDGE_PERCENTAGE` | 10 | pause menu top margin |
 | `MAIN_MENU_BG_OFFSET_X` / `_Y` / `_Y_END` | 9250 / 2250 / 2320 | the animated main-menu background scroll |
 | `MAIN_MENU_BG_TWEEN_SPEED` | 0.12 | how fast it moves |
-| `SETTINGS_MIN_RESOLUTION_X` / `_Y` | — | below this, the resolution row shows "illegible" |
-
-| `UI_MAX_PERKS_VISIBLE` | — | how many perk icons show before the overflow marker |
-| `UI_QUICKBAR_OFFSET_X` / `_Y` | — | the quick-access item bar's origin |
 | `UI_FULL_INVENTORY_OFFSET_X` | 170 | where the expanded inventory opens, relative to the wand row |
 | `UI_IMPORTANT_MESSAGE_TITLE_SCALE` | 1 | the scale of an "important message" title |
-| `UI_STAT_BAR_TEXT_OFFSET_Y` | 0 | value text, the vertical half of the offset pair |
 | `UI_DAMAGE_INDICATOR_RANDOM_OFFSET` | 0 | randomises damage-number placement |
 | `UI_WOBBLE_SPEED` / `UI_WOBBLE_AMOUNT_DEGREES` | 10 / 3 | the idle wobble on icons |
 | `UI_SCALE_IN_SPEED` | 0.2 | how fast widgets scale in |
 | `UI_LOCALIZE_RECORD_TEXT` | 1 | whether record values go through localisation |
 | `UI_PLAYER_FULL_STATS_COLUMN2_OFFSET_X` / `UI_PLAYER_FULL_STATS_COLUMN3_OFFSET_X` | 10 / 45 | column offsets in the expanded stats panel |
-| `UI_PLAYER_FULL_STATS_POS_Y` | 70 | that panel's vertical origin |
-| `UI_ITEM_STAND_OVER_INFO_BOX_OFFSET_Y` | −190 | the hover info box offset, vertical half |
 | `UI_GAME_OVER_MENU_LAYOUT_TOP_EDGE_PERCENTAGE` | 19 | game-over menu top margin |
-| `MAIN_MENU_BG_OFFSET_Y_END` | 2320 | where the main-menu background scroll stops |
 | `INVENTORY_STASH_X` / `INVENTORY_STASH_Y` | 370 / 80 | the stash pane's position |
 | `INVENTORY_DEBUG_X` / `INVENTORY_DEBUG_Y` | 165 / 45 | the debug inventory overlay |
 | `CREDITS_SCROLL_SPEED` | 25 | credits roll rate |
 | `CREDITS_SCROLL_END_OFFSET_EXTRA` | 85 | extra offset past the end of the credits |
 | `CREDITS_SCROLL_SKIP_SPEED_MULTIPLIER` | 15 | speed-up while the skip input is held |
 
-Forty UI-flavoured tunables in all. The rest are audio, spawning and physics.
+Forty UI-flavoured tunables are set in vanilla `magic_numbers.xml`. The executable registers more
+UI names that the vanilla file does not set (`UI_MAX_PERKS_VISIBLE`, `UI_QUICKBAR_OFFSET_X` / `_Y`,
+`SETTINGS_MIN_RESOLUTION_X` / `_Y`, `UI_BARS_SCALE` and others), which keep their compiled-in defaults
+unless a mod's magic-numbers file sets them. The rest of the file is audio, spawning and physics.
 
 ## What is not in the executable
 
@@ -150,8 +145,8 @@ named at the top of its bullet. Per-screen detail is in [ui-screens.md](ui-scree
 - **Gold jitters.** One frame in three the displayed gold is off by up to ±3, and the
   jittered value is written back into player state — so anything reading that field sees
   the noisy value.
-- **The HP number's font size is logarithmic**, floored at 40. A fixed size looks wrong the
-  moment max HP changes.
+- **The HP number's font size is logarithmic**, capped at 80 above 1000 max HP (40 at 100 HP).
+  A fixed size looks wrong the moment max HP changes.
 - **Mana values are truncated to integers** while HP keeps its decimals. Inconsistent, and
   visible in game.
 - **Sprite paths are rebuilt and hand-length-scanned every frame, per bar, per player.** A
