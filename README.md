@@ -26,6 +26,7 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
 | [docs/gui-layout.md](docs/gui-layout.md) | The layout engine: the layout stack, the cursor algorithm, layers, scroll containers, auto-boxes and tooltips. |
 | [docs/gui-bugs.md](docs/gui-bugs.md) | The bugs and sharp edges, with evidence strength marked — wrong values, memory-safety holes, silent no-ops, leaks. |
 | [docs/screenshake.md](docs/screenshake.md) | **Reading the screen shake.** Nothing in the API reads it back. Where the three floats live, how `GameScreenshake` combines and decays, what one unit is worth in pixels, what the camera getters already hand you for free, and how to read the real values through the LuaJIT FFI. |
+| [docs/magic-numbers.md](docs/magic-numbers.md) | What each vanilla `magic_numbers.xml` setting changes in the game, its shipped default and engine type, and which settings vanilla ignores. |
 
 ### How the Lua actually runs, and where files come from
 

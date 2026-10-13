@@ -124,16 +124,21 @@ There is no fixed-timestep accumulator either — one render frame is one simula
 unconditionally — so this is not a spiral of death. The stall is pure per-frame cost, and
 it is proportional to how much area one event dirties.
 
-### The budget tunables are dead code
+### A separate queue budget is live
 
-The binary contains the strings `GRID_MAX_UPDATES_PER_FRAME`,
-`GRID_MIN_UPDATES_PER_FRAME` and `GRID_FLEXIBLE_MAX_UPDATES`. They look exactly like the
-knob you want. They are referenced **only** by the two magic-number UI generators and by
-nothing else — they are never read at runtime. The per-frame update budget does not exist
-in this build.
+`GRID_MAX_UPDATES_PER_FRAME` (default `128`) limits the number of coordinate-bearing grid
+update items selected from the active queue during a world update. Deferred items remain
+queued for later ticks. `GRID_MIN_UPDATES_PER_FRAME` (default `40`) is the lower clamp used
+when flexible budgeting is enabled. `GRID_FLEXIBLE_MAX_UPDATES` (default off) adjusts the
+budget from measured FPS: below 60 FPS it divides the adaptive count by 1.5; at 60 FPS or
+above it multiplies the count by 1.4, then clamps it to the configured maximum and minimum.
+The world update calls this scheduler every tick (`0x0071a6b0` → `0x00726340`).
 
-That absence is also why the loop is the only place worth looking: there is no smaller
-version of it to re-enable.
+This budget limits queued update items, not the number of cells visited by each selected
+item. The dirty-rectangle walker at `0x0072a150` still has no inner cell counter or time
+slice, so a single large region can remain expensive even when the queue budget is low.
+These settings are useful for changing how many regions are scheduled per tick; they do
+not make an individual region cheaper.
 
 ### The dirty-region cap is a trap
 
@@ -266,9 +271,9 @@ to `profiler_game.txt` in the game directory — `grid_chunk_count`, `grid_activ
 
 ## 5. Removed — do not reintroduce
 
-- **`GRID_MAX_UPDATES_PER_FRAME` and friends are not tunables.** They exist as strings for
-  the magic-number UI and are read nowhere. Do not write an article telling people to set
-  them in `magic_numbers.xml`; it does nothing.
+- **Grid scheduling budget is distinct from cell-work cost.** `GRID_MAX_UPDATES_PER_FRAME`,
+  `GRID_MIN_UPDATES_PER_FRAME` and `GRID_FLEXIBLE_MAX_UPDATES` are live queue-scheduling
+  settings. They do not cap cells visited inside one selected region.
 - **`world_<X>_<Y>.png_petri` is not a PNG.** The extension is historical; the payload is
   the engine's own LZ format. Tools that expect a valid PNG will fail on it.
 - **`GameCutThroughWorldVertical` is not a teleport.** It is a vertical beam cut. Do not
