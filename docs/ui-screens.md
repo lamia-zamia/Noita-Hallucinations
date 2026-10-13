@@ -33,45 +33,54 @@ draws its background and the wand row, then calls three drawers.
 Draws one player's stat column and the wand/potion row. Two containers:
 
 - left column at `UI_BARS_POS_X`, right column at `window_width/ui_scale + UI_BARS2_OFFSET_X`
-- both start at `UI_BARS_POS_Y + playerIndex * pitch`, where the player index is a **linear scan**
-  of the active-player array
+- both start at `UI_BARS_POS_Y + activePlayerIndex * UI_HEALTHBAR_Y_SPACING`; the index is a
+  **zero-based linear scan** of the active-player array (shipped defaults: 20 and 24)
 
 Each bar is one call to the stat-bar widget `0x008212f0`, whose contract is:
 
 ```
-(gui, rect, id, value, max, ghostValue, ghostAlpha, textScale, textExtra,
- fill, damage, damageFlash, more, background, ...)
+(gui, rect, id, value, max, ghostValue, ghostAlpha, overlayAmount, overlayAlpha,
+ barWidth, barHeight, fill, negativeGhost, positiveGhost, overlay, background, ...)
 ```
 
-**Five sprite slots, in that fixed order, and two of the five are the same file.** Passing four
-gets you garbage. The order was confirmed from two independent call sites.
+The widget clamps `value` and the ghost segment endpoints to `[0,max]`, then scales their widths by
+`barWidth/max`. The background is `barWidth+2` wide; the fill and ghost segments start one unit
+inside and are `barHeight-2` high. The signed ghost amount draws an interval adjacent to the current
+value. Its two sprite slots are for negative and positive amounts respectively. The overlay is an
+optional right-edge segment controlled by `overlayAmount` and `overlayAlpha`; both vanilla callers
+pass zero for both controls, so that segment is disabled. The fifth slot is the background sprite.
+Vanilla passes the damage sprite into both ghost slots.
 
-**The HP text size is logarithmic:**
+**The health bar width is logarithmic in max HP:**
 
 ```
-textScale = 80                              if maxHp >= 40      (stored value; 1000 displayed HP)
-textScale = log10(maxHp * 2.5) * 40         otherwise; 40 if that comes out negative
+barWidth = 80                               if maxHp >= 40      (stored value; 1000 displayed HP)
+barWidth = log10(maxHp * 2.5) * 40          otherwise; 40 if that comes out negative
 ```
 
-`maxHp` here is the stored double at `+0x50`, which is the displayed HP divided by 25, so a
-100-HP player gets exactly 40. The HP readout grows with the *logarithm* of max health up to a
-cap of 80, which is why it never overflows. A fixed size looks wrong the moment the player takes a
-max-health container.
+`maxHp` here is the stored double at `+0x50`, which is the displayed HP divided by 25. This formula
+sets the bar width passed to the widget; it does not set the HP number's text size. The 80 and 40
+values are the executable's observed cap and floor.
 
 **The damage ghost.** On damage the game stores the HP at that moment and draws the difference
-as a separate chunk, fading out over half a second:
+as a separate chunk, fading out over a frame-based duration:
 
 ```
 ghost      = min(0, hp − max(storedDamageHp, 0))
-ghostAlpha = clamp01(1 − (now − lastDamageFrame) / 30)
+ghostAlpha = clamp01(1 − (now − lastDamageFrame) / fadeFrames)
 ```
 
-**The low-HP flash and the ghost use opposite parities of the same 30-frame counter.** On the
+`fadeFrames` is a global divisor (`0x01053dc0`) whose value is unresolved from the static data
+dump. The fade is frame-based; its duration in seconds depends on that value and the game's frame
+rate.
+
+**The low-HP fill and background flash on opposite parities of a 30-frame counter.** On the
 even half-second the *background* switches to the low-HP sprite; on the odd half-second the
 *fill* switches to the damage sprite. They alternate against each other, not together. The
-threshold is compared against the **raw stored HP** (the double at `+0x48`, displayed HP / 25) with a
-global whose initial value is `0.25` (6.25 displayed HP); that value is not `UI_LOW_HP_THRESHOLD`'s
-default of 1.3333.
+threshold is compared against the **raw stored HP** (the double at `+0x48`, displayed HP / 25) with
+`UI_LOW_HP_THRESHOLD`. Its shipped `magic_numbers.xml` value is `1.3333`, so the flash begins below
+about 33.33 displayed HP. The executable's fallback before data overrides is `0.25` (6.25 displayed
+HP).
 
 **Mana and max mana are truncated to integers** while HP keeps its decimals. Inconsistent, and
 visible in game.
@@ -81,6 +90,12 @@ value is written back into player state, so anything reading that field sees the
 
 **The jetpack readout always says `1`.** The percentage is computed as `(fuel * 100) / (fuel * 100)`.
 The bar graphic is right; only the number is wrong.
+
+**The fire-rate-wait indicator has a component flag.** `InventoryGuiComponent.mDisplayFireRateWaitBar`
+controls whether the HUD displays the `fire_rate_wait.png` icon and cast-delay label while the held
+wand is waiting to become usable. When the wait ends, the HUD clears the flag. Vanilla's `CESSATION`
+spell sets it after extending the wand's next-usable time; Lua code can set the same component field
+with `ComponentSetValue2` to request the indicator during a pending wait.
 
 Sprites, per bar: `colors_bar_bg.png` (background), `colors_flying_bar.png` (air/jetpack fill),
 `colors_mana_bar.png` (mana/potion fill), `colors_reload_bar.png` (reload fill),
@@ -164,8 +179,22 @@ Each inactive slot gets a greyed-out overlay.
 The inventory background is drawn at a **z of 1000** so it sits behind everything, and the
 open/close transition plays `ui/inventory_open` / `ui/inventory_close`.
 
-**The inventory toggles itself** from raw input bits including gamepad D-pad buttons, by flipping
-a flag on the player record. A mod cannot suppress it without patching that code.
+**The manual input path checks keyboard state directly.** Holding either code 225 or 229—the two
+configured `key_ui_quick_drag` bindings—suppresses this open/close path. When the inventory is
+already open, code 41 takes the close path (Escape in the game's keycode namespace). The exact
+positive open trigger is still unresolved. A GUI interaction in the same frame also blocks the
+toggle, unless `DESIGN_ALLOW_INVENTORY_CLOSING_AND_DRAGGING_GLITCH` is enabled. A separate,
+frame-managed GUI interaction state can also suppress the path; its exact trigger is not known. The
+renderer writes the inventory state on the player record, so a mod cannot suppress those vanilla
+state changes without patching this code. The controls table is in
+[the options and key bindings reference](ui-settings.md#key-bindings).
+
+There is a separate workshop onboarding path. When the player hitbox overlaps or touches a marker
+tagged `workshop_untouched`, the inventory opens and the game removes that tag, so the same marker
+does not trigger the automatic opening again. The marker's hitbox defines the trigger area. A
+`workshop_show_hint` marker separately gates the `$hint_editwands` tooltip when the player overlaps
+it. The vanilla workshop hitbox spans `(-64,-64)` to `(64,32)` around its origin; its hint marker
+spans `(-64,-48)` to `(64,48)`. The game applies each entity's transform scale to these bounds.
 
 ### Wand inventory — `0x00b788e0`
 
@@ -326,21 +355,21 @@ Sibling components have their own getters: jetpack (`+0x110` fuel, `+0xa0` has-f
 wand state (`+0x84` reload, `+0x88`/`+0x8c` mana max/current, `+0x3a8` reload end frame), gold,
 orb count.
 
-**What to copy:** the stat-bar contract (value, max, ghost, ghost alpha, text scale, five
-sprites) is a complete reusable description of a Noita bar; the log-scaled numeric text; the
+**What to copy:** the stat-bar contract (value, max, signed ghost amount, ghost alpha, bar width and
+height, five sprites) is a reusable description of a Noita bar; the log-scaled health-bar width; the
 2 Hz square wave with opposite parities; the dt-scaled lerp; and the player tint driven from the
 inventory-open animation.
 
 **What not to copy:** the per-frame hand-rolled `strlen` over
 sprite paths, the jetpack's `(f*100)/(f*100)`, the gold jitter written back into player state,
 and the frame-rate-dependent title animation. All four are real, three are bugs, and all four
-bite a reimplementation that copies the structure without reading the arithmetic. And do not be misled by `0x00b7cbf0` - a second, complete, unreachable health bar sitting in the same address band as the real one.
+bite a reimplementation that copies the structure without reading the arithmetic. `0x00b7cbf0`
+is a dead co-op health-bar drawer in the same address band as the live one.
 
 ## Not recovered
 
 - The fold-arrow sprite used by options section headings — `button_fold_*.png` is per-mod only,
   so the general headings use some other unnamed asset.
 - The **real** path of the user data directory.
-- The health-bar Y anchor fraction, which comes from a compiled tunable whose value was not
-  decoded. This is the one number you would need to place a bar exactly where the game does.
-- The arithmetic of `0x00b65fb0`, the wand stat panel — it timed out the decompiler.
+- The complete row-by-row coordinate arithmetic of the wand stat panel. Its fixed fields, labels,
+  and asset paths are documented in [ui-data-driven.md](ui-data-driven.md#the-wand-stats-card-values-yes-rows-no).
