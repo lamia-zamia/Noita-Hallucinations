@@ -17,6 +17,7 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
 |------|---------------|
 | [docs/how-the-api-works.md](docs/how-the-api-works.md) | The rules that apply to all 375 functions. **Read this first** — it changes how you write mod code. |
 | [docs/api-reference.md](docs/api-reference.md) | All 375 functions: enforced arity, per-argument coercion, substituted defaults, return arity, runtime messages, shared globals. |
+| [docs/sprite-stains.md](docs/sprite-stains.md) | Entity requirements for visible sprite stains, how `sprite_id` selects the sprite, and where generated UV maps are stored and named. |
 | [docs/family-notes.md](docs/family-notes.md) | Behaviour that holds across a family — `Entity*`, `Component*`, `Gui*`, `Physics*`, `Mod*` and the rest. |
 | [docs/gui-options.md](docs/gui-options.md) | **What every `GUI_OPTION` value does**, as bit positions and effects — and which ones are no-ops. |
 | [docs/gui-defaults.md](docs/gui-defaults.md) | The hardcoded values: which sprites, font and sounds the GUI uses, every default argument, and the numeric constants. |
@@ -130,8 +131,8 @@ attributes spread over five element types, not in a settings struct.
   date tables that stop matching in 2040.
 - The UI pages are recovered from **string references and sprite paths**, because the screens
   have no symbols. Every screen's attribution rests on at least two independent signals, but the
-  function that draws the wand stat panel timed out the decompiler and its layout arithmetic is
-  not recovered. Individual claims are marked with their evidence strength where it matters;
+  wand stat panel's row-by-row layout is not fully documented yet. Individual claims are marked
+  with their evidence strength where it matters;
   [docs/ui-screens.md](docs/ui-screens.md) ends with what is *not* known.
 - The world-generation pages are recovered from the **config-system field registrations** (the
   executable carries every field name, type and in-source description as string literals) plus

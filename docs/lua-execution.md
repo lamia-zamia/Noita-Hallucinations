@@ -322,6 +322,21 @@ What this means in practice:
   where the game is paused (a menu is open) none of those fire; `OnPausePreUpdate` fires instead.
   The per-frame callbacks sit in the gameplay branch of the update function, which is skipped while
   the game is still loading.
+- **Use `OnWorldPreUpdate` for work that should happen before this frame's gameplay update.**
+  It is the place to apply per-frame changes that the game should consume during that update. Data
+  read here is the pre-update snapshot; it may be out of step with the world that is rendered after
+  the update.
+- **Use `OnWorldPostUpdate` to inspect the results of the gameplay update or draw an overlay for
+  the resulting frame.** Entity transforms and camera-dependent screen positions should be sampled
+  here when the overlay must line up with the world as rendered. Sampling and drawing can both
+  happen in the same callback: `Gui*` calls create draw commands that the game submits later in the
+  frame ([GUI frame pipeline](gui-cookbook.md#the-frame)). Thus, in `OnWorldPreUpdate`, converting
+  with `GameGetCameraPos()` and queueing the GUI in one hook can still use a camera position from
+  before the engine update; the world camera may advance before those commands are rendered. In
+  `OnWorldPostUpdate`, both the sample and queued draw use the post-update snapshot.
+- **Use `OnPausePreUpdate` for GUI or other per-frame work while a menu pauses gameplay.** It runs
+  instead of the two gameplay callbacks; code registered only in `OnWorldPostUpdate` will not draw
+  during those paused frames.
 - **`OnPlayerSpawned` fires about ten gameplay frames after the world is ready, not on the first
   one.** The world-load routine (`0x006afaa0`) and a second routine (`0x006b8460`) both write **10** into a
   spawn countdown on the game object (`+0xA8`). The per-frame update decrements it once per

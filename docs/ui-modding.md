@@ -251,6 +251,7 @@ Two facts from this reference change the design:
    `0x3667`–`0x3673` for the main menu). A wrapper that does not manage ids will **share hover
    and focus state with the game's own buttons**. See [gui-internals.md](gui-internals.md).
 
-The hardest single number to reproduce is the health bar's Y anchor, which comes from a compiled
-tunable whose value has not been recovered. If you are matching the HUD exactly, that is the
-thing to chase.
+The health bars start at `UI_BARS_POS_Y + activePlayerIndex * UI_HEALTHBAR_Y_SPACING`; the shipped
+defaults are 20 and 24. The live HUD uses these data values directly. A separate, unreachable
+co-op bar routine uses a compiled fraction for its own anchor; that routine does not affect the
+visible bar.

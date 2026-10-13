@@ -13,7 +13,7 @@ listings at runtime, and a mod can write all of them.
 |---|---|---|
 | **Item / wand tooltips** | **yes** | `ItemComponent.ui_sprite`, `ui_description`, `ui_name` |
 | **HUD status & perk icons** | **yes** | `UIIconComponent` on a child entity |
-| **Grid containers** (arbitrary grid anywhere on screen) | **yes** | `InventoryComponent` — see below |
+| **Grid containers** (arbitrary grid anywhere on screen) | **unverified** | `InventoryComponent` has UI-related fields, but its rendering path is not established — see below |
 | **Progress-menu enemy grid** | **yes** | files in `data/ui_gfx/animal_icons/` |
 | **Perk "spent" state on the effects panel** | **yes** | sprite path + `$perk_*` strings |
 | **Wand stats card values** | **yes** | the wand's own components |
@@ -24,11 +24,11 @@ listings at runtime, and a mod can write all of them.
 
 ---
 
-## The best find: `InventoryComponent`
+## An unverified lead: `InventoryComponent`
 
-Noita has a generic **grid container** component whose entire layout is four data fields, and the
-game's own container UI draws it. It appears in **zero** vanilla entity XML files — it is a live
-component with no shipped user — which is exactly why nobody knows about it.
+Noita has an `InventoryComponent` with five UI-related fields that describe a possible grid
+container. It appears in **zero** vanilla entity XML files. Whether the game actually renders this
+component as a grid, and which entities can use it, remains unverified.
 
 ```lua
 local e = EntityCreateNew("")
@@ -41,22 +41,22 @@ EntityAddComponent( e, "InventoryComponent", {
 } )
 ```
 
-Those five field names and their documentation strings are compiled into the executable, read by
-the ten functions at `0x0060cda0`–`0x006101xx`, and the drawing code holds the default sprite
-`data/ui_gfx/inventory/inventory_box.png`. `ui_position_on_screen` is the key one: **it is an
-absolute screen position**, so this is not a slot in someone else's layout — it is a grid you place
-yourself, at a coordinate you choose, with a background sprite you choose.
+The constructor and field-access methods at `0x0060cda0`–`0x00610c40` establish the component's
+defaults and expose these fields through its component interface. The constructor's default sprite
+is `data/ui_gfx/inventory/inventory_box.png`. This code does not establish how a renderer consumes
+the fields or whether it draws the component for an arbitrary entity, so treat the example as an
+experiment rather than a confirmed way to add a grid.
 
 The field types are confirmed independently: `Vec2` for the three vector fields in a mod's own
 reflection table, and `InventoryComponent` appears in the community `component-explorer` mod's
 component list with its fields enumerated.
 
-**Caveat, and it is not small:** this component is *not* the player's wand inventory. The wand row
+**Caveat, and it is not small:** this component is separate from the player's wand inventory. The wand row
 iterates a C++-owned vector (`0x00b788e0:111-118`) reached through a singleton, and each
-element goes through typed getters, not a component scan. So `InventoryComponent` gives you a *new*
-grid; it does not let you add a wand slot. It is also unproven that the container UI runs for an
-arbitrary entity rather than only for the specific owners the game creates it on — the decompilation
-of the reader functions is missing, so treat "it draws for any entity" as untested.
+element goes through typed getters, not a component scan. `InventoryComponent` cannot add a wand
+slot. At `0x0060cda0`–`0x00610c40`, the executable defines the component and its property and
+serialization methods; those methods do not establish a UI draw/update path or which entities it
+would display. Treat "it draws for any entity" as untested.
 
 ## HUD icons: `UIIconComponent`
 
@@ -150,7 +150,24 @@ you can also mark an *existing* vanilla perk or spell as newly acquired. You can
 
 The card is a fixed list of stat rows, and each row is baked into one function: a component field
 name, a `$inventory_*` label, for some rows a `$inventory_*_tooltip` (the function references nine),
-and an `icon_<field>.png` path built from a hardcoded prefix.
+and an `icon_<field>.png` path built from a hardcoded prefix. The same renderer is used by the
+expanded wand inventory and the new-wand chooser, so the row set follows the wand across both screens.
+The item-pickup overlay also calls this renderer for the current world-item candidate. The pickup
+function receives separate picker and item entities: it reads `InventoryGuiComponent` from the picker,
+then positions the card at the item's projected screen location. The picker component must have a
+nonzero `imgui` field and a clear `mActive` field. The chooser also uses `imgui` as its GUI object and
+starts a GUI frame on it before drawing. The component's reflected C++ type for `imgui` is
+`ImGuiContext*`; `mActive` is a `bool`.
+The game's `InventoryGuiSystem` updates these components by iterating its component buffer and
+calling the inventory renderer. The renderer starts a GUI frame using that `ImGuiContext*` and
+`mActive`; when active, it draws the inventory background and the rest of the inventory UI. Its
+open/close path changes `mActive`, which is also why the pickup detail card is suppressed while the
+inventory is open.
+The panel background sizes itself to the content: it starts at 96 UI units wide, grows to fit
+measured text, and adds one measured text-line step for each applicable row. Rows can disappear when
+their component values do not call for them, but the game has no data-driven way to add a new row.
+The always-cast spell icons are hoverable too; hovering one can open a nested detail card for that
+action.
 
 - **You can change any value** — it reads the wand's real components (`gunaction_config`,
   `AbilityComponent`, `gun_config`). Alter a wand's `damage_projectile` and the card shows it.
@@ -220,7 +237,8 @@ order, at what position — and none of it is.
 
 ## How to verify any of this yourself
 
-Everything above is checkable in ten seconds without the decompiler:
+The first four checks exercise established data-driven paths. The `InventoryComponent` check is an
+unresolved experiment:
 
 - Drop a replacement PNG at a `data/ui_gfx/hud/*.png` path in your mod and see whether the HUD
   changes. This works; it is the cheapest confirmation in the list.
@@ -228,4 +246,4 @@ Everything above is checkable in ten seconds without the decompiler:
 - Set `ItemComponent.ui_description` on a spawned item and hover it.
 - Put a file in `data/ui_gfx/animal_icons/` and open the progress menu.
 - Try `InventoryComponent` with an explicit `ui_position_on_screen` and see whether a grid appears.
-  **This one is untested** and is the most interesting thing to try.
+  No working result has been verified yet.
