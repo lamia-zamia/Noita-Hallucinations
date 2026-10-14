@@ -350,6 +350,10 @@ also takes the per-line rendering option. A single-line text does not.
 Text colour comes from the pending colour slot, which is opaque white by default. A
 `GuiColorSetForNextWidget` applies to exactly one widget, because the commit resets it.
 
+`GuiText` has no rotation argument or rotation option. Its Lua wrapper reads only the seven
+documented arguments; extra arguments are ignored. The text draw command is submitted with no
+rotation transform. `GuiImage` does accept rotation, but it draws an image rather than text.
+
 ## A checklist for a reimplementation
 
 If you are building this, the behaviours that are easy to miss and change how mods look:

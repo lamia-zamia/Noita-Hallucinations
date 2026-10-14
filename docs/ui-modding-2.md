@@ -64,6 +64,115 @@ There is no predicate for "which menu screen am I on" beyond these three. In par
 nothing for the progress menu, the world-select screen or the game-over screen. For those, see
 "Detecting an arbitrary screen" below.
 
+### Is the base pause menu visible?
+
+`OnPausePreUpdate()` is **not** a base-pause-menu visibility callback. It runs on paused/menu update
+frames and takes no arguments. The game uses a C++ menu stack: when the stack is empty it draws the
+base pause menu; when it is non-empty it draws the top submenu instead. Opening Options, Controls,
+or another stacked screen does not stop `OnPausePreUpdate`, and returning to the base menu does not
+produce a dedicated Lua event.
+
+A runtime check on Noita Dev Build Jan 25 2025 also observed `OnPausedChanged(true, false)` while
+the Options screen was being entered from the pause menu. Do not assume every `true` callback means
+the pause key just opened the base screen; a modeled submenu should survive repeated paused-state
+callbacks. The callback still does not say which screen is active.
+
+### Reconstructing Options → Apply & Return
+
+The native button is drawn at a formula-based position. In the analyzed build, the Options screen
+starts from `(screen_width / 2 - 169, screen_height × 0.14)` in UI coordinates, then adds a
+`(-10, 0)` text inset and a two-coordinate offset returned by the selected tab widget. The screen
+dimensions are window pixels divided by the GUI's UI scale, matching `GuiGetScreenDimensions`.
+The button bypasses layout positioning. The Y anchor is measured from the bottom edge, while a Lua
+overlay uses top-origin text coordinates. Reflect the native Y anchor with `screen_height - y`.
+The tab offset starts at zero but is stored with focus state and can change during
+keyboard/controller navigation.
+
+Lua can recreate the base position and measure a duplicate localized text widget for its own
+hover state. Use `GuiButton` for the replica: `GuiText` is non-interactive. Lua cannot query the
+native tab's saved focus offset or the vanilla button rectangle, so a duplicate hitbox is exact only
+when that offset is zero. This is a build-specific engine formula, not a supported screen or
+widget query.
+
+So the supported signals can tell you that gameplay is paused and whether the inventory panel is
+open, but they cannot reliably distinguish the base pause menu from its submenus. `ModSettingsGui`
+is a positive signal for a mod settings panel when that callback runs, not a general screen-change
+notification. Vanilla widget rectangles and IDs do not provide a supported substitute.
+
+There is a direct but build-specific route if your mod can use LuaJIT FFI. The pause menu draws its
+base screen when the C++ menu stack is empty; submenus push a screen, and returning to the base menu
+pops it. On the analyzed executable, this stack condition is statically verified but has not been
+runtime-tested. Read the stack begin/end globals and compare them:
+
+```lua
+local ffi = require("ffi")
+local function u32(address) return ffi.cast("uint32_t*", address)[0] end
+
+local MENU_STACK_BEGIN = 0x012076bc
+local MENU_STACK_END   = 0x012076c0
+
+function OnPausePreUpdate()
+    if GameIsInventoryOpen() then return end
+
+    local on_base_pause_menu =
+        u32(MENU_STACK_BEGIN) == u32(MENU_STACK_END)
+    if on_base_pause_menu then
+        draw_my_overlay()
+    end
+end
+```
+
+This reads internal process memory, so it is not a supported or portable API. The addresses are for
+the analyzed executable and must be rechecked after a game update. `require("ffi")` is only
+available to mods granted unrestricted APIs by the game setting, or when the executable has been
+patched to expose it; see [Reading screen shake](screenshake.md#reading-it-exactly-the-luajit-ffi)
+for that access setup. The comparison tells you whether the base menu or a stacked submenu is
+active; keep `GameIsInventoryOpen()` (and any other screen exclusions your mod needs) as a separate
+filter.
+
+Without FFI/native memory access, the workable fallback is an input-driven overlay: show it after
+the pause key opens the pause screen, then hide it on the first observed input. The logo-splash
+pattern used by `noita.hardmod` does this broadly across mouse, keyboard, gamepad buttons, sticks and
+triggers. Because it scans every key in its list, it also treats F11 as menu input; F11 is the
+default `key_replayedit_open` binding. A no-FFI implementation should whitelist actual menu
+navigation inputs instead of scanning every key. Its coordinates use
+`UI_PAUSE_MENU_LAYOUT_TOP_EDGE_PERCENTAGE` to place the splash near the vanilla logo; they do not
+detect the menu screen.
+
+This gets the overlay out of the way on the first detected input, but it cannot
+tell whether that input opened a submenu, selected an item, or returned to the base menu. The
+logo-splash pattern does not restore the overlay on return. You can special-case a known back input
+(Escape, for example) and re-show it, but that is only reliable for a menu flow where that input
+always returns directly to the base pause screen. The input API reports raw input, not which vanilla
+widget consumed it, so coordinates cannot turn this into a general screen detector.
+You can reconstruct a no-FFI tracker for a defined set of vanilla routes:
+
+1. Start in `base_pause` when `OnPausedChanged(true, false)` fires; clear the tracker when the game
+   unpauses or enters the inventory pause.
+2. In `OnPausePreUpdate`, use mouse-button events plus `InputGetMousePosOnScreen()` to match clicks
+   against the current screen's known button hitboxes. Push the destination screen when a button
+   opens a submenu.
+3. Pop on Escape/controller Back or a click on the submenu's lower footer. Draw the overlay only
+   while the tracked screen is `base_pause`.
+
+This is a real alternative to FFI, but it is a reconstruction. For mouse selection, you can replay
+the relevant localized text rows in your own `Gui` using the same font and layout, including the
+current `UI_PAUSE_MENU_LAYOUT_TOP_EDGE_PERCENTAGE` magic number and the native display factor and
+integer truncation used for its vertical origin, then read `GuiGetPreviousWidgetInfo(gui)`'s
+`hovered` result immediately after each text widget. The engine computes hover in that GUI's
+coordinate system, so this avoids converting raw mouse coordinates. The same technique can use a
+transparent GUI widget to detect a broad footer region without resolution-specific pixel math.
+In the usual active-display path, the native factor is 0.25; the fallback path uses 1.0.
+The returned hover belongs to your text replica; it does not reveal whether a vanilla widget was
+hovered or activated. The replica must match the vanilla layout, and its text bounds may differ
+from a `GuiButton` hit area. Include the help image in the vertical layout before the heading: the
+native helper draws it with option `0x10000`, which still advances the vertical cursor. Omitting it
+leaves the replayed labels near the top while the native labels follow the tall help image. Include
+every nested route and
+back action you need to support; controller navigation needs its own transition mapping. An
+unmodeled path can desynchronize the tracker. Footer hitboxes vary between screens, so a shared
+bottom-strip hover region is a practical heuristic rather than a universal screen-change event.
+
 ## Reading a vanilla widget's rectangle: not possible
 
 It looks as though `GuiGetPreviousWidgetInfo(gui)`, called with the options screen's own `gui` inside
