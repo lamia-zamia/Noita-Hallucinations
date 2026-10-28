@@ -19,6 +19,7 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
 | [docs/api-reference.md](docs/api-reference.md) | All 375 functions: enforced arity, per-argument coercion, substituted defaults, return arity, runtime messages, shared globals. |
 | [docs/sprite-stains.md](docs/sprite-stains.md) | Entity requirements for visible sprite stains, how `sprite_id` selects the sprite, and where generated UV maps are stored and named. |
 | [docs/family-notes.md](docs/family-notes.md) | Behaviour that holds across a family — `Entity*`, `Component*`, `Gui*`, `Physics*`, `Mod*` and the rest. |
+| [docs/special-tags.md](docs/special-tags.md) | What each documented special or engine-recognized entity/component tag does, which tags the wiki list omits, and which claims remain unverified. |
 | [docs/gui-options.md](docs/gui-options.md) | **What every `GUI_OPTION` value does**, as bit positions and effects — and which ones are no-ops. |
 | [docs/gui-defaults.md](docs/gui-defaults.md) | The hardcoded values: which sprites, font and sounds the GUI uses, every default argument, and the numeric constants. |
 | [docs/gui-cookbook.md](docs/gui-cookbook.md) | Reimplementing the GUI: the coordinate maths, the per-frame sequence, and the formulas, worked through. |

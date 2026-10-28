@@ -277,6 +277,12 @@ The front-end background scrolls with a per-frame accumulator scaled by a consta
 zero when it would cross — and that accumulator is **frame-rate dependent**, unlike the HUD's
 dt-scaled lerps.
 
+In a runtime check on Noita Dev Build Jan 25 2025, the pause menu began with no keyboard selection.
+The first Up/Down arrow selected Continue; Enter before that first directional input did nothing.
+Further arrows moved the selection and Enter activated the selected row; Space did not activate a
+row. Pressing Escape from a submenu restored focus to Continue. This describes the observed keyboard
+interaction; the Lua API exposes no focus query.
+
 ### Options — `0x006d5620`
 
 Six tabs, a pointer-table tab strip, ~60 options. Full detail in

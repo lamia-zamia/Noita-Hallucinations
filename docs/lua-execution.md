@@ -80,6 +80,17 @@ inside the state builder `0x007ef130`. Its result is stored at offset `+0x38` of
 0x68-byte context object. The game creates one such object per mod, so **each mod gets its
 own `lua_State`**. The game's own scripts get one too, from a separate accessor.
 
+### LuaComponent VM sharing
+
+`LuaComponent.vm_type` controls whether components share their script VM. The default,
+`SHARED_BY_MANY_COMPONENTS`, means components using that mode share top-level globals and
+callback names. `ONE_PER_COMPONENT_INSTANCE` gives each component instance a VM that is reused
+for that component's later script executions, so its globals can hold persistent component state
+without colliding with another component. `CREATE_NEW_EVERY_EXECUTION` is deprecated.
+
+When components use the shared mode, store per-entity state in a mod-namespaced table keyed by
+entity ID; one unkeyed global can make separate entities overwrite one another.
+
 The builder does the same thing for every state, in this order:
 
 1. `luaL_newstate()`, store at `this+0x38`.
@@ -311,10 +322,10 @@ dispatches them:
 | `OnWorldPostUpdate` | every gameplay frame, **after** that update |
 | `OnPlayerSpawned` | inside the player-spawn routine, once the player entity exists and is registered |
 | `OnPlayerDied` | the "player entity destroyed" event handler (polymorph deaths included) |
-| `OnPausePreUpdate` | instead of the two above, on frames where a menu screen is up |
-| `OnPausedChanged` | whenever the pause state toggles |
-| `OnModSettingsChanged` | right after the pause is released, if a setting changed while paused |
-| `OnCountSecrets` | when the progress / secrets screen is built |
+| `OnPausePreUpdate` | instead of the two above, on frames where a menu screen is up, **before** that frame's menu draw |
+| `OnPausedChanged` | on **every write** of the pause-flag word, with no check that the value changed - so also when Options opens and closes ([details](ui-modding-2.md#is-the-base-pause-menu-visible)) |
+| `OnModSettingsChanged` | on unpause, only if the "settings changed" flag is still set — in practice never; see below |
+| `OnCountSecrets` | on **every frame** the Progress screen is drawn, from inside that draw |
 
 What this means in practice:
 
@@ -345,9 +356,32 @@ What this means in practice:
   last step. So `OnWorldPreUpdate` and `OnWorldPostUpdate` run for roughly ten frames with no
   player entity, and a mod cannot assume one exists inside them. `BiomeMapLoad` is the exception:
   it spawns the player itself, straight after reloading the biome config.
-- **`OnPausedChanged` runs for every mod before the settings are applied.** On unpausing, if a
-  setting was changed, the game first calls `ModSettingsUpdate` for each mod and only then
-  `OnModSettingsChanged`.
+- **Settings changes are applied by a per-frame poll, and `OnModSettingsChanged` effectively
+  never fires.** `ModSettingSet`, `ModSettingSetNextValue` and `ModSettingRemove` set a "settings
+  changed" flag (`0x01207efc`) whenever the stored value actually changes (`0x007e7df0:191`).
+  At the end of the frame the game checks it (`0x006b26f0` → `0x006b59d0` → `0x00835c90`); if
+  set, it calls `ModSettingsUpdate(2)` for every mod, clears the flag and rewrites
+  `??S00/mod_settings.bin`. The check runs at the end of **every** frame of the game object's update, paused or
+  not: the paused branch dispatches `OnPausePreUpdate`, draws the pause menu (`0x006e4fe0` →
+  `0x006e3410`, return value ignored) and falls through to the poll. (A second route into the
+  menu, at `006b296b`, gates the poll on the menu returning 1; the base menu and Options both do.)
+
+  `OnModSettingsChanged` is dispatched from one place only — the unpause path (`0x00838d40`),
+  after `OnPausedChanged`, and only if the flag is *still* set. A change made in the Mods tab is
+  consumed by the poll at the end of the same frame, so by the time the player unpauses the flag
+  is clear and the callback is skipped. It can only fire for a change made on the unpause frame
+  itself. Treat it as dead: react to settings in `ModSettingsUpdate`, or compare
+  `ModSettingGet` values yourself.
+
+  Confirmed in game: a changing `ModSettingSet` from `init.lua` makes every mod's
+  `ModSettingsUpdate` run once per frame; the same call made from inside `ModSettingsUpdate`
+  does not re-trigger it, because the flag is cleared after the dispatch loop.
+
+  The file write is per *frame with a change*, not per call: several `ModSettingSet` calls in one
+  frame produce one write, and setting the value it already has produces none. A mod that stores
+  a value that changes every frame (a timer, a position) rewrites `mod_settings.bin` and runs
+  every mod's `ModSettingsUpdate(2)` every frame. Keep that state in `GlobalsSetValue` or Lua
+  variables. In the Mods tab this means every changed click is saved immediately.
 - The magic-numbers callback and the biome-config load both happen during run set-up, before the
   per-frame callbacks start.
 

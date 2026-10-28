@@ -48,9 +48,11 @@ through the Lua API* — which, inside `ModSettingsGui`, is your own settings li
 widget the game drew with a constant. The game is not bypassing a check; it is on the other side
 of an API boundary, and the option word never crosses it.
 
-The general lesson, and it is the useful part: **anything stored on the `gui` object is Lua-private
-state.** The frame-wide options, the pending options, the z, the previous-widget record, the
-mouse-claim byte. The game reads none of them, because the game does not go through the wrapper.
+The general lesson, and it is the useful part: **the per-widget state the wrapper merges is
+Lua-private.** The frame-wide options, the pending options, the z, the previous-widget record.
+The game reads none of them, because the game does not go through the wrapper. (The mouse-claim
+byte is per-object and the game's builders do read it; the layout stack is read by every builder
+— see [the layout-stack hole](#hole-the-layout-stack-is-not-lua-private-and-vanilla-widgets-obey-it).)
 That cuts both ways — it is why the options route fails, and it is also why the previous-widget
 record is a clean getter for *your own* widgets and nothing else.
 
@@ -204,15 +206,95 @@ because the `0x800000` sentinel and the option word are compile-time constants i
 
 Be clear-eyed about what it buys:
 
-- **It does not block the pause menu.** That is a different `Gui` object on a different code path.
+- **It does not block the pause menu.** The pause menu is drawn on the *same* `Gui` object (the
+  menu stack is dispatched from `006e3410` with the singleton `this`), but it is only drawn when
+  the options screen is not, so an input claim made here never coexists with a pause-menu button.
+  Layout state is different — see the next-but-one section.
 - **It does not give you the tab strip.** Lines 235–460 run before you, on the same `gui`, and they
   are drawn with literal option words, so nothing you set afterwards reaches them.
-- **It does not survive the state crossing.** The handle that would let you exploit any of this
-  still cannot get from `settings.lua`'s state into `init.lua`'s.
+- **It does not survive the state crossing by value.** The handle cannot be copied from
+  `settings.lua`'s state into `init.lua`'s — but `init.lua` can make the settings state *run*,
+  on any gameplay frame, and the handle can be used there. See
+  [using the handle outside the Mods tab](#using-the-handle-outside-the-mods-tab).
 
 What it *is*: proof that the "everything on a `Gui` is Lua-private" rule has an exception on the C++
 side, and therefore that a C++-side input block is a thing this codebase does. Which is an argument
 for the DLL route below rather than against it.
+
+### Using the handle outside the Mods tab
+
+**Partly tested.** The per-frame trigger below is confirmed in game (a `ModSettingSet` with a changing value from `init.lua` makes `ModSettingsUpdate` run every frame; setting a value from inside `ModSettingsUpdate` does not re-trigger it). Using the menu handle from there is not yet tested. The handle cannot travel between states, but
+code in the settings state can be made to run on demand during gameplay.
+
+**The handle cannot be copied.** It is a light userdata. The whole executable has two
+`lua_pushlightuserdata` sites (`0x00f07798` is referenced from `GuiCreate`, `0x007d9920`, and
+the options screen, `006d5620`, and nowhere else), every `Gui*` function rejects any other type
+(`lua_type(L,1) == 2`), and the cross-state channels (`GlobalsSetValue`, `ModSettingSet`) carry
+strings and numbers. `load`/`loadstring` are removed, so there is no bytecode route. A stash in a
+`settings.lua` global stays in that state.
+
+**But the settings state can be entered on demand during gameplay.** It is the state `ModSettingsUpdate` runs
+in, and `ModSettingsUpdate` has four dispatch sites (`0x00838900` ← `00834620` mod init,
+`006d5620` Mods-tab first draw, `00838d40` unpause, `00835c90`). The last one is a poll:
+
+```c
+/* 0x00835c90, called from 0x006b59d0 at the tail of 0x006b26f0 */
+if (settings_dirty && mods_exist) {
+    for each mod: ModSettingsUpdate(2);          /* MOD_SETTING_SCOPE_RUNTIME */
+    settings_dirty = 0;
+    save "??S00/mod_settings.bin";               /* 0x00837f10 */
+}
+```
+
+`settings_dirty` (`0x01207efc`) is set by `ModSettingSet`, `ModSettingSetNextValue` and
+`ModSettingRemove` whenever the stored value actually changes (`007e7df0.c:191`). Those are
+callable from `init.lua`. So:
+
+1. Open Options → Mods once; `ModSettingsGui` stores the menu handle in a `settings.lua` global.
+   There is no way round this step: the options screen is the only code that hands out the
+   handle, it does so only on the Mods tab (`006d5620:1208`), only for a mod whose
+   `ModSettingsGuiCount()` is above 0, and no Lua API pushes a screen onto the menu stack. Whether
+   one visit from the main menu carries into a run depends on the settings state and the menu
+   singleton both surviving the transition — untested.
+2. In `init.lua`, call `ModSettingSet("yourmod.tick", n)` with a changing `n` on any gameplay frame you
+   want the settings state to run.
+3. At the end of that same frame, your `ModSettingsUpdate(2)` runs with the stored handle.
+
+Costs: every trigger also runs every other mod's `ModSettingsUpdate(2)` (applying their pending
+runtime settings early) and rewrites `mod_settings.bin`. Trigger only on the frames you need.
+
+**When the poll runs.** At the end of every frame, paused or not. A paused frame runs
+`OnPausePreUpdate` for every mod, then the pause menu (`0x006e4fe0` → `0x006e3410`), then the
+poll. So `init.lua` can set the flag from `OnPausePreUpdate` and your `ModSettingsUpdate(2)` runs
+at the end of the same frame, after the menu has drawn — what it pushes affects the next frame's
+menu. That works on every pause-menu frame, Options included, at the cost of one settings-file
+write per frame you trigger. A `ModSettingsUpdate` cannot re-arm itself: the flag is cleared
+after the dispatch loop.
+
+**A stable offset for the pause menu.** Outside the options screen nothing pops on your behalf,
+so a frame you push stays until you pop it. A Lua layout frame drifts if left alone: the pause
+menu opens its own vertical layout relative to your cursor (`006e3410:177`) and closing it folds
+the menu's size into a horizontal or vertical parent (`0081e710`). Popping and re-pushing it on
+every paused frame (triggered from `OnPausePreUpdate`) resets the cursor and lets you move the
+menu live, one settings write per frame. For a menu that holds still without per-frame work, use a **mode-8** parent: it is skipped by that fold — and the only Lua call that
+pushes one is `GuiBeginScrollContainer`. Left open on the menu handle, it gives:
+
+- every menu widget offset by the container's content origin, with no drift;
+- the container's hit rectangle as the only place menu buttons can be hovered (the button
+  builder's scroll test, `008245d0.c:106-121`), and probably its clip rectangle — so make it
+  screen-sized;
+- a scroll offset frozen at 0, because the offset is only measured at End.
+
+Push it during gameplay; pop it with `GuiEndScrollContainer` (a matched pair, so safe) and push
+again to move it. The natural trigger is `OnPausedChanged(false)` in `init.lua` → `ModSettingSet`
+→ the poll at the end of that unpause frame, which positions the menu for the *next* pause at the
+cost of one settings-file write per unpause.
+
+Before popping, check that your container is still the top one: right after pushing, draw
+`GuiText(gui, 0, 0, " ")` and remember its `x, y`; before popping, draw it again and compare. A
+mode-8 frame never advances, so the two match. If the menu singleton was rebuilt, the same
+address may now be a fresh object with no layout at all, the probe reports a different position,
+and you must push without popping.
 
 ### The one ordering fact that would still matter
 
@@ -362,6 +444,77 @@ simulating behind your menu. There is no supported way to stop it.
 
 ---
 
+## Hole: the layout stack is *not* Lua-private, and vanilla widgets obey it
+
+**Static analysis only — not yet tested in game.** The "anything stored on the `gui` object is
+Lua-private" rule above holds for the option word, z and the previous-widget record. It does
+**not** hold for the layout/layer stack.
+
+- The game's own builders place every widget through the same function as Lua widgets,
+  `0x0081e0d0` (called from the button builder at `008245d0.c:89`). It applies the top layout
+  frame unless option `0x8000` is set. The pause-menu buttons pass `0x8010000` / `0x8010200`
+  (`006e3410.c:257-549`) — bit `0x8000` is clear, so they are laid out by whatever frame is on top.
+- The game's frame start (`0x0081dd50` → `0x008187d0`) never touches `state+0x1a0`/`+0x1a4`. A frame
+  left open survives into every later frame on that object.
+- The options screen and the pause menu share the menu singleton, so a frame left open while
+  `ModSettingsGui` runs is still there when the pause menu draws.
+
+### Why the obvious leak does nothing, and the one that should work
+
+`ModSettingsGui` runs nested inside the game's own structure, and the game pops a **fixed count**
+afterwards. On the Mods tab (`006d5620`):
+
+| line | call | effect |
+|---|---|---|
+| 471 | `0081e480(…, 2, …)` | outer vertical layout **O** in the base layer |
+| 1247 | `0081f870` (id `0x3617`) | mods-list scroll container: new layer **L**, mode-8 frame **F8** at the scrolled content origin, two clip/hit records |
+| 1251 | `0081e480(…, 2, …)` | vertical layout **V** in **L** |
+| 1270 / 1328 | `0081e480(…, 1)` / `0081e710` | per-mod row, balanced, closed *before* the callback |
+| 1341 | `ModSettingsGui(gui, in_main_menu)` | your callback; stack is `B:[…, O]`, `L:[F8, V]` |
+| after it | `00827540`, `0081eb50`, `0081e6e0` | id/scope pops and a vertical-spacing nudge — no layout pops |
+| 1377 | `0081e710` | pop one frame from the top layer |
+| 1378 | `00820060` | pop one frame (`0081e710`), pop the layer and one layer id (`0081e8b0`), pop both scroll records |
+| 2419 | `0081e710` | pop one frame — meant for **O** |
+
+Consequences:
+
+- **A leaked `GuiLayoutBegin*` vanishes.** It sits in **L**, and `00820060` frees **L** with every
+  frame in it. Harmless; the only visible effect is the rest of the Mods tab for that one frame.
+- **A leaked layer or scroll container underflows.** `00820060` pops a frame *before* it pops a
+  layer (`00820060.c:14-15`). With your layer on top and only one frame in it, the second pop runs
+  on an empty vector. Do not do this.
+- **The balanced leak** — once, guarded by a flag — is: *do not* close **V**; call
+  `GuiLayoutBeginLayer(gui)` then `GuiLayoutBeginVertical` twice. The game then pops your two
+  frames, your layer, its own scroll records and your layer id. **L** survives holding `[F8, V]`,
+  and line 2419 pops **V** instead of **O**. What remains on top is **L** with **F8**: a mode-8
+  frame, which offsets every later widget by the mods-list content origin and **never advances
+  its cursor**. Every pop count matches, so nothing underflows; **O** leaks harmlessly below.
+
+Predicted effect: from the next frame, everything on the menu `Gui` — the options screen and,
+after you close it, the pause menu — is drawn shifted by the mods list's scrolled content origin,
+hit boxes included, until the singleton is rebuilt. Scrolling the mods list before triggering
+changes the offset. Applying it twice stacks a second shift.
+
+**Undoing it (derived, not tested).** After *k* applications, the stack at callback time is
+`B:[O]`, then *k* leaked layers each holding `[F8ᵢ, Oᵢ₊₁]`, then the live `L:[F8, V]`. To return
+to a clean `B:[]` once the game's pops have run:
+
+1. `GuiLayoutEndLayer` — drops the live **L** (it always exists here).
+2. `GuiLayoutEnd` — the top layer is now either a leaked one (`[F8, O]` → `[F8]`) or `B` (`[O]` → `[]`).
+3. Probe: draw `GuiText(gui, 0, 0, " ")` and read its `x, y` from `GuiGetPreviousWidgetInfo`.
+   An empty `B` skips placement and reports exactly `0, 0`; a leaked `F8` reports its non-zero
+   origin. If non-zero, `GuiLayoutEndLayer` and go back to step 2.
+4. Rebuild what the game will pop: `GuiLayoutBeginVertical` (absorbs line 2419), then
+   `GuiLayoutBeginLayer` and `GuiLayoutBeginVertical` twice (absorb 1377/1378).
+
+Every pop lands on a non-empty vector: step 2 always has a frame to take, and step 3 only drops a
+layer the probe has identified as leaked. Layer ids balance too (*k*+1 popped by you, one pushed,
+one popped by the game). With *k* = 0 the sequence is a no-op.
+
+Not established: whether the leaked layer id (`state+0x234`) also associates the menu with the
+mods list's clip rectangle in the renderer. Test with a restart available; `Esc` still leaves
+the pause menu if it ends up off-screen.
+
 ## What is still unproven
 
 Much less than there was. The two functions that gated this page are disassembled and both are
@@ -376,9 +529,6 @@ What remains:
 - **`FUN_00b5d940` and `FUN_009e2c00`**, the deck-size and held-card readers in the wand-edit
   gate. Neither is decompiled, so the exact condition that makes a slot eligible is inferred from
   the comparison at `00b7ee50.c:227` rather than read.
-- Whether the ordering of `OnPausePreUpdate` against the menu layout lets a mod draw on the menu
-  `Gui` in the same frame it is read. Now that the handle is known to be a stable singleton, this
-  is the last question between "you hold the pause menu's gui" and "you can use it".
 
 ## Where this leaves the original goal
 
@@ -394,8 +544,9 @@ Lua-private and the claim byte is per-object; the game passes literals and keeps
 That wall is now understood rather than merely observed, which is worth something even though
 it is still a wall.
 
-**So the honest menu design** is: take the handle, draw on it during `ModSettingsGui` (or
-`OnPausePreUpdate` if the ordering cooperates), and accept that the vanilla rows remain live
+**So the honest menu design** is: take the handle, draw on it during `ModSettingsGui` (or, after
+it has been stored, from a `ModSettingsUpdate` you trigger — see
+[using the handle outside the Mods tab](#using-the-handle-outside-the-mods-tab)), and accept that the vanilla rows remain live
 underneath. Shape the panel so their click targets are covered by your own, and the leak stops
 mattering. Everything else — pausing the game, adding a row, blocking a screen you did not draw —
 is closed, and now closed with a reason.

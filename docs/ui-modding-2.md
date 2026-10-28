@@ -12,6 +12,8 @@ menu you are drawing over* — and states for each whether it is possible, and b
 | know if the game is paused | **yes** | `OnPausedChanged(is_paused, is_inventory_pause)` |
 | know if you are in the front-end or the in-game pause menu | **yes** | second arg of `ModSettingsGui` |
 | know if the inventory panel is open | **yes** | `GameIsInventoryOpen()` |
+| know if Options or Progress is open | **yes**, as callback side effects | `OnPausedChanged` on Options entry/exit, `OnCountSecrets` per Progress frame — see below |
+| know if New Game, Mods, Release Notes or Credits is open | only by reconstruction | no callback; replay the menu and track input |
 | read a vanilla widget's rectangle | **no** | the previous-widget record is only written by Lua wrappers | `gui` — see below |
 | add a row to the options screen | **yes** | `ModSettingsGui`, already sanctioned |
 | add a row to the pause menu or main menu | **no** | see "What stays closed" |
@@ -60,9 +62,9 @@ game does not supply.
 the API that reads UI state; it returns the engine's own "inventory is open" flag rather than
 anything derived.
 
-There is no predicate for "which menu screen am I on" beyond these three. In particular there is
-nothing for the progress menu, the world-select screen or the game-over screen. For those, see
-"Detecting an arbitrary screen" below.
+There is no predicate for "which menu screen am I on" beyond these three. Options and Progress
+can be followed through callback side effects (next section); there is nothing for the
+world-select screen or the game-over screen. For those, see "Detecting an arbitrary screen" below.
 
 ### Is the base pause menu visible?
 
@@ -72,30 +74,53 @@ base pause menu; when it is non-empty it draws the top submenu instead. Opening 
 or another stacked screen does not stop `OnPausePreUpdate`, and returning to the base menu does not
 produce a dedicated Lua event.
 
-A runtime check on Noita Dev Build Jan 25 2025 also observed `OnPausedChanged(true, false)` while
-the Options screen was being entered from the pause menu. Do not assume every `true` callback means
-the pause key just opened the base screen; a modeled submenu should survive repeated paused-state
-callbacks. The callback still does not say which screen is active.
+Two callbacks do carry screen information, as side effects:
+
+- **`OnPausedChanged` fires on every write of the pause-flag word, not only on pause toggles.**
+  The game keeps one flag word (bit `0x4` paused, `0x2` inventory, `0x8` Options open, `0x10`
+  replay editor). Every writer calls the same notifier (`0x006f4d10`), which dispatches
+  `OnPausedChanged(flags > 0, flags & 2)` with no comparison against the previous value. The
+  Options row sets `0x8` (`0x006e3410`), and both ways out of Options clear it: Apply & Return or
+  Escape with nothing changed (`0x006cc450`), and "Yes" on the display-mode confirmation
+  (`0x006cc9b0`). So within an open pause menu, `OnPausedChanged(true, false)` means **Options
+  opened** when you were on the base menu and **Options closed** when you were in Options. A
+  display-mode change does not close Options directly: it pushes the "are you sure?" countdown
+  dialog, and "No", Escape and the timeout all return to Options without a callback. Options
+  opened from Mods or New Game (their "mod settings" route) does not set the flag, but its exit
+  still clears it, so you get one callback, on the way back to that screen.
+- **`OnCountSecrets` runs on every frame the Progress screen is drawn.** Its only call site is
+  the Progress screen function (`0x006dfe40`), which is called each frame while it is the top
+  screen, and nothing else calls that function's dispatcher. It is the same per-mod Lua state as
+  your `init.lua`; return two integers (`0, 0` if you only want the signal). Since it fires
+  inside the menu draw, which runs after `OnPausePreUpdate`, a paused update sees the previous
+  frame's calls. Progress is reachable only from the base menu, so when the calls stop you are
+  back on the base menu.
+
+The pause itself is set only by the back action — an Escape key press or a gamepad Start press —
+on an empty menu stack. The replay editor (default key F11) raises the same `(true, false)`
+callback from gameplay without either key, which is how the two can be told apart. The callback
+still names no screen; New Game, Mods, Release Notes and Credits produce no signal at all.
 
 ### Reconstructing Options → Apply & Return
 
 The native button is drawn at a formula-based position. In the analyzed build, the Options screen
-starts from `(screen_width / 2 - 169, screen_height × 0.14)` in UI coordinates, then adds a
-`(-10, 0)` text inset and a two-coordinate offset returned by the selected tab widget. The screen
-dimensions are window pixels divided by the GUI's UI scale, matching `GuiGetScreenDimensions`.
-The button bypasses layout positioning. The Y anchor is measured from the bottom edge, while a Lua
-overlay uses top-origin text coordinates. Reflect the native Y anchor with `screen_height - y`.
-The tab offset starts at zero but is stored with focus state and can change during
-keyboard/controller navigation.
+starts from `(screen_width / 2 - 169, screen_height × 0.14)` in UI coordinates. The footer adds an
+X inset of `-10` and the options panel's effective height (`281` UI units) to Y. The panel builder
+starts with the requested height (`265`) and adds `8` units of padding on both sides, then stores
+the resulting height in its widget record at offset `0x30`; the footer reads that field when
+building its position. These are the same scaled viewport units returned by
+`GuiGetScreenDimensions`, and the button bypasses layout positioning. The reconstructed position is
+`(screen_width / 2 - 179, screen_height × 0.14 + 281)`.
 
-Lua can recreate the base position and measure a duplicate localized text widget for its own
-hover state. Use `GuiButton` for the replica: `GuiText` is non-interactive. Lua cannot query the
-native tab's saved focus offset or the vanilla button rectangle, so a duplicate hitbox is exact only
-when that offset is zero. This is a build-specific engine formula, not a supported screen or
-widget query.
+Lua can recreate this position and measure a duplicate localized text widget for its own hover
+state. Use `GuiButton` for the replica: `GuiText` is non-interactive. This is a build-specific
+reconstruction from the native draw calls, not a supported screen or widget query. You do not need
+it to follow Options: the `OnPausedChanged` callback on exit is exact, and it also covers the
+display-mode confirmation dialog, which this button opens instead of closing Options.
 
-So the supported signals can tell you that gameplay is paused and whether the inventory panel is
-open, but they cannot reliably distinguish the base pause menu from its submenus. `ModSettingsGui`
+So the supported signals tell you that gameplay is paused, whether the inventory panel is open, and
+(as side effects) when Options and Progress open and close; they cannot distinguish the base pause
+menu from New Game, Mods, Release Notes or Credits. `ModSettingsGui`
 is a positive signal for a mod settings panel when that callback runs, not a general screen-change
 notification. Vanilla widget rectangles and IDs do not provide a supported substitute.
 
@@ -147,22 +172,78 @@ always returns directly to the base pause screen. The input API reports raw inpu
 widget consumed it, so coordinates cannot turn this into a general screen detector.
 You can reconstruct a no-FFI tracker for a defined set of vanilla routes:
 
-1. Start in `base_pause` when `OnPausedChanged(true, false)` fires; clear the tracker when the game
-   unpauses or enters the inventory pause.
-2. In `OnPausePreUpdate`, use mouse-button events plus `InputGetMousePosOnScreen()` to match clicks
-   against the current screen's known button hitboxes. Push the destination screen when a button
-   opens a submenu.
-3. Pop on Escape/controller Back or a click on the submenu's lower footer. Draw the overlay only
-   while the tracked screen is `base_pause`.
+1. Start in `base_pause` when `OnPausedChanged(true, false)` fires from a closed state with Escape
+   or Start pressed; clear the tracker when the game unpauses or enters the inventory pause.
+2. Follow Options and Progress by their callbacks (see "Is the base pause menu visible?"): a
+   `(true, false)` callback on the base menu enters Options and one in Options returns to the base
+   menu; Progress is open while `OnCountSecrets` keeps firing.
+3. For the other screens, in `OnPausePreUpdate`, match clicks against hitboxes replayed in your own
+   `Gui` (below). Push the destination screen when a button opens a submenu.
+4. Pop on the back action or a click on the submenu's Return. The back action is an **Escape key
+   press or a gamepad Start press** and nothing else: the keyboard handler (`0x006b5e20`) reacts
+   to key `0x29` and the gamepad handler (`0x006b83c0`) to button `15`; the shared back routine
+   (`0x006e9810`) has no other callers apart from two Return buttons. Gamepad Back and B do not go
+   back. The routine pops exactly one screen. Draw the overlay only while the tracked screen is
+   `base_pause`.
+
+New Game and Mods can open further screens on top of themselves (confirmation dialogs, world
+select, mod settings), and nothing reports when those close. After a click inside either screen,
+a tracker cannot know whether the next back action returns to the base menu or to that screen.
+Treat the depth as unknown until a resync: unpausing, or Progress (reachable only from the base
+menu) drawing and closing.
+
+Two base-menu labels can change width without Lua being able to predict it. Progress reads
+`Progress ($0 new)` (`$menu_progress_new`) when any `new_perk_picked_<id>`, `new_action_<id>` or
+`new_kill_<name>` run flag is set; the kill part iterates the files in
+`data/ui_gfx/animal_icons/`, a directory listing Lua cannot enumerate. Mods reads `Mods (!)`
+(`$menu_mods_incompatibilities`) after a mod-version comparison that reads files Lua is not allowed
+to open. Both labels are centered, so a hitbox the width of the wider variant covers both.
+
+New Game and Credits call the same native Return helper. It starts a fresh GUI layer and places the
+button at `(0.04 × width, (1 − 0.07) × height)`, using the active GUI scale just as
+`GuiGetScreenDimensions` does. Mods also anchors its footer layout at `(0.04 × width,
+(1 − 0.07) × height)`; its Return button is at local `(0, 0)` inside that layout. Progress
+computes the same y anchor, then replaces x with the aggregate count returned by loaded mods'
+`OnCountSecrets` callbacks. Its native Return is at
+`(aggregate secret count, (1 − 0.07) × height)`, so its x can change with the installed mods and
+game state.
+
+Release Notes draws its body in a 280-unit scroll container inside a vertical layout that begins at
+10% of the screen height. The scroll container adds 2 units of padding at both ends, the parent
+layout has a −2 vertical margin, and the native code advances the parent cursor by another 8 units
+before placing Return at local `(0, 0)`. Its widget y is therefore `0.1 × height + 290`; it is not
+at the screen origin. Its x depends on half the measured width of the live release-notes text, so
+Lua cannot recover the exact horizontal coordinate from the exposed UI API.
+
+A no-FFI tracker can reproduce Return's hitbox with a `GuiButton` at the known engine coordinates.
+New Game, Credits and Mods have recoverable positions. Progress instead uses the sum of every mod's
+`OnCountSecrets` result for x, and Release Notes centers Return from the measured live
+`_release_notes.txt` width; neither dynamic value is exposed to another mod's Lua state. Native code
+opens the notes file at the game install root, while the supported `ModTextFileGetContent` paths are
+under `data/` or `mods/`, so that API cannot supply the live text to recompute its width. Progress
+does not need a hitbox at all, since `OnCountSecrets` stops when it closes. For Release Notes, the
+only widget below the text box is Return, and its left edge (centered text) is never right of the
+screen center, so a probe covering that row from x = 0 to the center plus the label width catches
+every Return click; its only false positives are clicks on empty space in that row. Escape and
+gamepad Start always pop it. The GUI engine
+handles conversion from raw mouse pixels to UI units, and the Y positions are independently
+reconstructible. These positions are specific to the analyzed build; other submenu routes need their
+own mapping.
 
 This is a real alternative to FFI, but it is a reconstruction. For mouse selection, you can replay
 the relevant localized text rows in your own `Gui` using the same font and layout, including the
 current `UI_PAUSE_MENU_LAYOUT_TOP_EDGE_PERCENTAGE` magic number and the native display factor and
 integer truncation used for its vertical origin, then read `GuiGetPreviousWidgetInfo(gui)`'s
 `hovered` result immediately after each text widget. The engine computes hover in that GUI's
-coordinate system, so this avoids converting raw mouse coordinates. The same technique can use a
-transparent GUI widget to detect a broad footer region without resolution-specific pixel math.
-In the usual active-display path, the native factor is 0.25; the fallback path uses 1.0.
+coordinate system, so this avoids converting raw mouse coordinates. A transparent GUI widget can
+also model a footer hitbox, but widening it beyond the label trades fewer missed hits for false
+positives elsewhere on that row.
+The native factor is 0.25 when the game treats a gamepad as the active device and 1.0 otherwise;
+the same test picks the gamepad or keyboard help image. The active device (`0x00a8ccc0`) is the
+gamepad selected in the `gamepad_mode` option when that pad is connected, none when the option is
+off, and in auto-detect the pad with the most recent activity timestamp if it is newer than the
+keyboard's and the mouse's (one of the two mouse timestamps is taken minus 90). Which mouse event
+each timestamp records was not traced.
 The returned hover belongs to your text replica; it does not reveal whether a vanilla widget was
 hovered or activated. The replica must match the vanilla layout, and its text bounds may differ
 from a `GuiButton` hit area. Include the help image in the vertical layout before the heading: the
@@ -170,8 +251,8 @@ native helper draws it with option `0x10000`, which still advances the vertical 
 leaves the replayed labels near the top while the native labels follow the tall help image. Include
 every nested route and
 back action you need to support; controller navigation needs its own transition mapping. An
-unmodeled path can desynchronize the tracker. Footer hitboxes vary between screens, so a shared
-bottom-strip hover region is a practical heuristic rather than a universal screen-change event.
+unmodeled path can desynchronize the tracker. Footer hitboxes vary between screens, so do not use
+one shared bottom-strip region as a universal screen-change event.
 
 ## Reading a vanilla widget's rectangle: not possible
 
@@ -370,6 +451,82 @@ if GuiButton( gui, BLOCKER_ID, 0, 0, "" ) then end   -- never true; we only want
 
 Note this only works because the blocker is on the *same* object as the panel. It is exactly the
 mechanism that does not work across objects, which is the whole reason a vanilla overlay leaks.
+
+## Detecting the cursor over a vanilla widget
+
+**Static analysis; the trigger is confirmed in game, the probe is not yet tested.** Needs the
+menu `Gui` handle (one visit to Options → Mods per session) and the per-frame
+`ModSettingsUpdate` trigger — see
+[ui-holes.md](ui-holes.md#using-the-handle-outside-the-mods-tab).
+
+The menu `Gui` has one "mouse claimed" byte per frame. The vanilla button, image-button and
+text-input builders set it when they are hovered; the frame start clears it. The game also
+records the hovered and clicked widget ids on the object (`+0xd0`, `+0x70`), but no Lua call
+reads them back.
+
+`GuiImage` reads the claim byte in its own hover test and never sets it
+(`00820bf0:109`: hovered only if the byte is clear, the widget is interactive and the cursor is
+inside). So a transparent `GuiImage` covering the screen, drawn on the menu `Gui` *after* the
+menu has drawn, reports **not hovered exactly when a vanilla interactive widget has the
+mouse**. On a paused frame the order is `OnPausePreUpdate` → menu draw → `ModSettingsUpdate(2)`,
+so the probe belongs in `ModSettingsUpdate`:
+
+```lua
+-- settings.lua
+local menu_gui
+function ModSettingsGui(gui, in_main_menu)
+  menu_gui = gui
+  -- ... your settings ...
+end
+
+function ModSettingsUpdate(init_scope)
+  if init_scope ~= 2 or menu_gui == nil then return end
+  if GlobalsGetValue("yourmod.paused", "0") ~= "1" then return end
+  local w, h = GuiGetScreenDimensions(menu_gui)
+  local s = math.max(w, h)                  -- the hit box uses `scale` for both axes
+  GuiImage(menu_gui, 0x7f00, 0, 0, "mods/yourmod/files/px.png", 0, s, s)   -- 1x1 PNG, alpha 0
+  local _, _, hovered = GuiGetPreviousWidgetInfo(menu_gui)
+  GlobalsSetValue("yourmod.vanilla_hover", hovered and "0" or "1")
+end
+```
+
+```lua
+-- init.lua
+function OnPausedChanged(is_paused, is_inventory_pause)
+  GlobalsSetValue("yourmod.paused", (is_paused and not is_inventory_pause) and "1" or "0")
+end
+function OnPausePreUpdate()
+  ModSettingSet("yourmod.tick", GameGetFrameNum())   -- runs ModSettingsUpdate after the menu
+end
+```
+
+`yourmod.vanilla_hover` then lags the menu by one frame, because `init.lua` reads it in the next
+`OnPausePreUpdate`. A vanilla click is "hover was set" plus the mouse button going down on that
+frame: a click registers on press, while the pointer is inside the widget.
+
+What it does not tell you: *which* widget. Combine it with the mouse position and the screen you
+are tracking (above) if you need that. Only paused frames are meaningful: without a menu draw
+the byte keeps the last menu frame's value. Each trigger also rewrites `mod_settings.bin` and runs
+every mod's `ModSettingsUpdate(2)`; to limit that, trigger only on frames where the mouse moved or
+a button went down.
+
+## Gameplay HUD state without any `gui` handle
+
+The inventory HUD keeps its state on the player's `InventoryGuiComponent`, and the component
+getter reads all of it except the `gui` pointer. Offsets from the getter (`0x00430af0`):
+
+| field | offset | what the code shows |
+|---|---|---|
+| `mActive` | `+0x60` | the inventory is open. Set and toggled by the HUD updater (`00b7d8d0:315`, `:508`); gates the full inventory draw (`:546`, `:753`). **Statically confirmed.** |
+| `mBackgroundOverlayAlpha` | `+0x68` | fades toward its target every frame in the same updater (`:767-769`) — a smooth "inventory opening/closing" value |
+| `mLastFrameActionsVisible` | `+0x58` | compared with the frame counter before the spell row is drawn (`:649`); zeroed in `00b8c200` |
+| `mLastFrameInteracted` | `+0x54` | writer not located; untested |
+| `mAlpha` | `+0x64` | not traced |
+| `imgui` | `+0x50` | the HUD's own `Gui` object. **Not readable**: the getter routes it to a helper that logs `field has unsupported type: imgui - returning 'nil'` (`0x0042cb20`) |
+
+`ControlsComponent` carries both `mButtonDownLeftClick` (its in-source note: "Ignores gamepad,
+if mouse is pressed this will be true") and `mButtonDownFire`. If the game withholds fire while
+the mouse is used on the HUD, the two will disagree on those frames. That is untested.
 
 ## What stays closed
 

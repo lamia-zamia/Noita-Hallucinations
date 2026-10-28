@@ -137,14 +137,30 @@ mods/mymod/data/ui_gfx/animal_icons/my_enemy.png
 mods/mymod/data/entities/animals/my_enemy.xml
 ```
 
-and marking it discovered with `GlobalsSetValue("new_kill_my_enemy", "1")`. Vanilla has 185 of
+and marking it discovered with `GameAddFlagRun("new_kill_my_enemy")`. Vanilla has 185 of
 these icons. **This is the mechanism to reach for if you want to extend a vanilla screen with real
 new content** — the one place where the extension point is a directory listing rather than a fixed
 table.
 
-Note the same screen reads `PERK_PICKED_<id>` and `new_perk_picked_<id>` from the globals store, so
-you can also mark an *existing* vanilla perk or spell as newly acquired. You cannot add a new perk
-*cell* that way — that list is a compiled vector.
+To check whether a particular entry is marked new, use the matching run flag:
+
+```lua
+local action_is_new = GameHasFlagRun("new_action_" .. action_id)
+local perk_is_new = GameHasFlagRun("new_perk_picked_" .. perk_id)
+local enemy_is_new = GameHasFlagRun("new_kill_" .. enemy_id)
+```
+
+The pause-menu Progress row checks these per-entry flags every time it is drawn: it shows
+`$menu_progress_new` with a count when one or more matching flags are set, and `$menu_progress`
+when none are set. The Progress screen also reads the flags for its per-entry markers. Neither path
+consumes them, so opening Progress does not dismiss the label. The markers stay until code clears
+them with `GameRemoveFlagRun` or the run's flag state is reset. There is no single Lua query for
+"anything new" across all categories; a mod must check the IDs it cares about. These flags say
+which entries are marked new, not whether the Progress screen is open.
+
+The screen checks `PERK_PICKED_<id>` for discovery and the matching `new_perk_picked_<id>` run flag
+for the new marker, so `GameAddFlagRun` can mark an *existing* vanilla perk or spell as newly
+acquired. You cannot add a new perk *cell* that way — that list is a compiled vector.
 
 ## The wand stats card: values yes, rows no
 
