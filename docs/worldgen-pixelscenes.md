@@ -48,24 +48,41 @@ actual images (`.plz` = material and colour layers, `.png` = background and visu
 There are three shipped variants of the master list: `_pixel_scenes.xml`,
 `_pixel_scenes_laboratory.xml` and `_pixel_scenes_newgame_plus.xml`.
 
+A `<PixelScenes>` file has four optional children, in any order (container reader `0x00875950`):
+
+| child | items | what happens |
+|---|---|---|
+| `<PixelSceneFiles>` | `<File>path</File>` (element text) | each file is loaded and parsed as another `<PixelScenes>` file |
+| `<BackgroundImages>` | `<Image filename x y/>` | a background image at absolute world `x`, `y` (ints) |
+| `<mBufferedPixelScenes>` | `<PixelScene .../>` | scenes to place, queued for stamping |
+| `<mOldPixelScenes>` | `<PixelScene .../>` | scenes already done - pushed straight onto the old list and never stamped. Written by save files |
+
 ### The `PixelScene` fields
 
-These come from the XML reader at `0x00873fe0`, which is the only place the offsets appear
-explicitly - the reader stores the parsed value and names the attribute in the same basic block.
-There are no compiled-in defaults, because nothing constructs a `PixelScene` without XML.
+The XML reader at `0x00873fe0` stores the parsed value and names the attribute in the same basic
+block, which pins each offset. Every attribute is optional; a missing one keeps the constructor
+value (`0x0061bc40`).
 
-| offset | attribute | type | meaning |
-|---|---|---|---|
-| +0x04 | `pos_x` | int | absolute world x |
-| +0x08 | `pos_y` | int | absolute world y |
-| +0x0C | `material_filename` | string | the cell-material image; **required** - an empty one is rejected with `"material_filename is empty, we require a material_filename"` |
-| +0x24 | `colors_filename` | string | the visual/colour layer |
-| +0x3C | `background_filename` | string | drawn behind everything |
-| +0x54 | `background_z_index` | int | |
-| +0x58 | `skip_biome_checks` | bool | place even if the biome does not match |
-| +0x59 | `skip_edge_textures` | bool | also sets the biome's `skip_edge_textures` |
-| +0x74 | `clean_area_before` | bool | erase what is there first |
-| +0x5C | `just_load_an_entity` | string | place an entity instead of blitting |
+| offset | attribute | type | default | meaning |
+|---|---|---|---|---|
+| +0x04 | `pos_x` | int | `0` | absolute world x |
+| +0x08 | `pos_y` | int | `0` | absolute world y |
+| +0x0C | `material_filename` | string | `""` | the cell-material image; may be empty when `just_load_an_entity` is set |
+| +0x24 | `colors_filename` | string | `""` | the visual/colour layer |
+| +0x3C | `background_filename` | string | `""` | drawn behind everything |
+| +0x54 | `background_z_index` | int | **`50`** | |
+| +0x58 | `skip_biome_checks` | bool | `0` | place even if the biome does not match |
+| +0x59 | `skip_edge_textures` | bool | `0` | also sets the biome's `skip_edge_textures` |
+| +0x5C | `just_load_an_entity` | string | `""` | place an entity instead of blitting |
+| +0x74 | `clean_area_before` | bool | `0` | erase what is there first |
+| +0x75 | `DEBUG_RELOAD_ME` | bool | `0` | debug flag |
+
+`<PixelScene>` may also contain a `<ColorsToMaterial>` list of `<CM>` entries (colour -> material
+overrides). Its entry format was not recovered and no known file uses it.
+
+The error `"material_filename is empty, we require a material_filename"` belongs to the Lua
+function `LoadPixelScene` (`0x007b1990`), not to the XML reader: a scene in a file may omit the
+material image.
 
 Two more fields are not attributes. `+0x88` and `+0x8C` are the width and height, read from the
 material image when the scene is queued (`0x0087f3d0`). They are not saved, so a scene loaded straight
@@ -109,8 +126,8 @@ Every scene, from any source, lives on one manager object at `world + 0x458`, wh
 | +0x0C | `mOldPixelScenes` | scenes the game has finished with |
 
 `0x00882dd0` walks the queue and calls `0x00880fb0` on each scene. A non-zero result moves that one
-scene to the old list and ends the pass. The result was not traced further, so being in the old list
-does not prove the scene stamped successfully.
+scene to the old list and ends the pass. The old list means "processed", which is not necessarily
+the same as "stamped successfully".
 
 Scenes enter in two ways:
 
@@ -226,16 +243,17 @@ Decor objects, trees, backgrounds and pixel sprites all go through the same cont
 `0x0087d670`:
 
 ```c
-// 0x0087d670.c
+// 0x0087d670
 offset = object->pixel_offset;             // +0xDC
 if (!chunk_ring_contains(offset_x >> 9, offset_y >> 9)) return 0;   // chunk must be loaded
-if (!FUN_0089c1b0(this, offset_x + x, offset_y + y)) return 0;
-if (!FUN_0089c1b0(this, x,             offset_y + y)) return 0;
-if (!FUN_0089c1b0(this, offset_x + x,  y))            return 0;
+if (!chunk_ready(offset_x + x, offset_y + y)) return 0;             // 0x0089c1b0
+if (!chunk_ready(x,            offset_y + y)) return 0;
+if (!chunk_ready(offset_x + x, y))            return 0;
 return 1;
 ```
 
-Three points, not one, because a sprite is bigger than a pixel. `((coord >> 9) - 0x100) & 0x1FF`
+The test checks the object's far corners, not just its origin, because an object can span a
+chunk boundary. `((coord >> 9) - 0x100) & 0x1FF`
 is the **512 x 512 chunk ring** centred on the player - chunks `-256 .. +255`, which is the same
 torus the world grid uses. An object whose chunk is not loaded is not placed now; it is pushed
 onto a pending vector (`0x0089e010`, 20-byte records at `ProceduralTerrain + 0x88`) and
@@ -270,15 +288,13 @@ mechanism from the wang scripts, and it is called at two different times:
 | once per biome-map chunk at load, only for biomes with `pixel_scene` set | `init` | `(x, y, 512, 512, 0)` |
 | once per generated chunk | `init` | `(x0, y0, 512, 512, 0)` |
 
-The per-chunk call is `0x0073c440` looking the function up **by name** - the 4-byte string it
-loads is literally `"init"` - and then calling it by resolved index. The load-time call is the
-by-name variant. Both go through `0x0078cfb0` (fetch the biome's Lua table), `0x0078c710`
-(resolve a field by name) and `0x0078c270` / `0x0078ce40` (call it), which are thin wrappers over
+Both calls look up the global `init` by name and go through `0x0078cfb0` (fetch the biome's Lua
+table), `0x0078c710` (resolve a name) and `0x0078c270` / `0x0078ce40` (call it), thin wrappers over
 `lua_getfield` and `lua_pcall`.
 
-Per-chunk `init` only runs when the chunk's `+0x79` flag is clear. That is why a biome's Lua
-script is the right place for "put one thing here if this chunk is at least so deep", and the
-wrong place for anything that must happen exactly once.
+Per-chunk `init` runs only for freshly generated chunks, not for chunks restored from a save. It
+runs once per chunk of the biome, so it suits "put something here if this chunk is deep enough"
+and is the wrong place for anything that must happen exactly once per world.
 
 The shipped scripts are `data/scripts/biomes/*.lua` and `data/scripts/biomes/mountain/*.lua`,
 and they use `spawn_items`, `spawn_small_enemies`, `spawn_wands`, `SpawnEntity`,

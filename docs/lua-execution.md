@@ -225,10 +225,10 @@ Record fields, from their use sites:
 | `+0x38` | a **pointer** to the mod's 0x68-byte Lua manager (named `Mod init.lua`), whose own `+0x38` is the `lua_State` |
 | `+0x3c` | a pointer to the mod's 0x54-byte file device - the one `init.lua` existence is probed through |
 | `+0x40` | the mod's `request_no_api_restrictions` flag, passed as the manager's third constructor argument, where it becomes `+0x4e` and selects `luaL_openlibs` (set) vs. the six-library setup (clear) |
-| `+0x44` | the `directory` attribute from the mod's `mod.xml` |
+| `+0x44` | a second path string; where it is filled from is not established |
 
-Note that `+0x20` and `+0x44` are two different paths and are easy to confuse: `+0x20` is
-derived from the id, `+0x44` from the manifest.
+`+0x44` does **not** come from a `directory` attribute: `mod.xml` has no such attribute and the
+string does not occur in the executable. The full attribute list is in [mod-xml.md](mod-xml.md).
 
 ## Load order
 

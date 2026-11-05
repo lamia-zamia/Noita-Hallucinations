@@ -354,8 +354,25 @@ infinity glyph. The stats: `$stat_modsenabled`, `$stat_gold`, `$stat_time`, `$st
 `$stat_places_visited`, `$stat_enemies_slain`, `$stat_max_hp`, `$stat_items_found`, `$stat_orbs`,
 `$stat_streaks`, `$stat_total_deaths`, `$stat_total_wins`, plus cause of death.
 
-Buttons: `$menugameover_newgame`, `$menugameover_savereplay` (only when the recorder is active),
-`$menugameover_quit`.
+Buttons, in order: `$menugameover_newgame`, `$menugameover_savereplay` (only when the recorder is
+active), the shared Progress row (`0x006df500`, the same widget as the pause menu's), and
+`$menugameover_quit`. All are centred on the layout origin. New Game pushes `0x006ceb00` and Progress
+pushes `0x006dfe40` onto the menu stack without pausing, so the world keeps updating,
+`OnWorldPreUpdate` keeps firing, and `OnCountSecrets` fires on each frame Progress is on top.
+
+The stats and buttons are hidden until an input reveals them: a click on the cause-of-death or
+"click here for stats" row, Escape, or Space or Enter once the screen has drawn 11 frames.
+
+New Game's y can be recomputed from Lua because every row above it is one line of text and the
+layout's `margin_y` is `0`: title, then the rows, then `+8` (`0x006e61bd`, constant at `0x01053cc0`).
+The four spacing calls after the title and the two between the stat groups add `margin_y`, so they
+add nothing. The rows are DEBUG IS ON (when that stat is set), cause of death or completed, mods
+enabled, gold, time, depth, places, enemies, max HP, items, orbs (only if above 0), streaks, total
+deaths and total wins. Mods enabled requires more than one record in the mod table (`0x00835f10`);
+the streaks row requires at most one record (`0x00b17200`) and a positive streak. Reading the table
+as the base game plus one record per mod is an inference from those two checks, which would make
+every modded run show mods enabled and hide streaks. None of these positions have been checked in
+game yet.
 
 The accumulator here is **frame-rate dependent, not dt-scaled** — unlike the HUD. If you
 reimplement it with a constant, the title animation runs at a different speed on a 144 Hz

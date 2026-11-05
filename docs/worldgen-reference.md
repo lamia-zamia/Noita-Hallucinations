@@ -27,7 +27,7 @@ behaviour is stable across updates; addresses are not.
 | `0x00868f70` | the cave carver - reads the `BitmapCaves` record, inline Lehmer RNG |
 | `0x00879090` | biome-map image loader |
 | `0x0087edd0` | pixel-scene table loader (`data/biome/_pixel_scenes.xml`) |
-| `0x0087f3d0` | pixel-scene prefab path |
+| `0x0087f3d0` | queue a pixel scene (`LoadPixelScene`, the scene-file loader, `ProceduralTerrain::Init`) |
 | `0x008402f0` | `source/misc_utils/pixel_scene_splicer.cpp` |
 
 ### Per chunk
@@ -49,7 +49,6 @@ behaviour is stable across updates; addresses are not.
 | `0x0073af60` | builds the 128 x 128 coarse grid from the pointer grid |
 | `0x00721870` | 3x3-neighbour object re-assignment, from the per-pixel worker |
 | `0x00721da0` | 3x3-neighbour object re-assignment, from `PART2` (also used by pixel-scene placement and two entity paths) |
-
 | `0x0087ec40` | end of batch: prune the tree list, then pixel scenes |
 | `0x00882dd0` | pixel-scene streaming (`Streaming - loading shit to get shit into the screen`) |
 | `0x00880fb0` | pixel-scene placement (`PIXEL SCENE SUCCESS!`) |
@@ -101,17 +100,15 @@ behaviour is stable across updates; addresses are not.
 
 ### The runtime biome record
 
-`+0x00` is the vftable, `+0x08` is the `name`
-string, `+0xC4..+0xC7` are the four `noise_*_edges` bools (defaulting true, true, false, false),
-`+0x218` is `game_enemy_hp_scale`, `+0x220` is `noise_type` and `+0x268` is `mMultiplierPerlin`. What the generation code
-actually uses:
+The XML fields and their defaults are in [worldgen-biomes.md](worldgen-biomes.md#topology-fields).
+The slots the generation code uses, including the runtime-only ones:
 
 | offset | meaning |
 |---|---|
 | +0x00 | `Biome::vftable` |
 | +0x04 | **biome type**: 0 procedural, 1 bitmap, 2 wang tile |
 | +0x08 | the `name` std::string |
-| +0xC0 | unregistered slot, zero until set: pointer to the biome's `BitmapCaves` record (its `+0x1C`/`+0x20` are `size_x`/`size_y`, its `+0x88` the Lua script) |
+| +0xC0 | runtime: pointer to the biome's `BitmapCaves` record |
 | +0xC4 / +0xC5 / +0xC6 | `noise_biome_edges` / `big_noise_biome_edges` / `fat_biome_edges` |
 | +0xC7 | `skip_edge_textures` |
 | +0x1B0 | the loaded `bitmap_data` bitmap (its path is at +0x198) |
@@ -124,14 +121,14 @@ actually uses:
 | +0x224 | `mInsideNoiseType` |
 | +0x228 | `mInsideNoiseFBM` |
 | +0x268 | `mMultiplierPerlin`, tested `!= 0.0` by the noise shaping |
-| +0x2A4 | the materials pointer (unregistered, but zero-initialised) |
+| +0x2A4 | runtime: the `BiomeMaterials` pointer |
 
-`BitmapCaves` and `mBiomeMaterials` are nested child elements with **no slot of their own**;
-they are reached through pointers.
+`+0xC4`-`+0xC7` are four bools initialised by one 32-bit store (`0x00000101`). The fields marked
+double in the biomes table are 8-byte doubles.
 
 ### The chunk record
 
-Audited against `0x0073c220`, `0x0073b040`, `0x0073c440`, `0x0073e950` and `0x0073af60`.
+From `0x0073c220`, `0x0073b040`, `0x0073c440`, `0x0073e950` and `0x0073af60`.
 
 | offset | meaning |
 |---|---|
@@ -155,13 +152,11 @@ Audited against `0x0073c220`, `0x0073b040`, `0x0073c440`, `0x0073e950` and `0x00
 | +0xBC / +0xC0 | a vector of 4-byte pointers |
 | +0xC8 | finished flag, set under a lock |
 
-`+0x78` is *overwrite* (not *skip*), and `+0x79` is a skip-generation flag set by the save loader.
-
 **A chunk holds two separate 1 MiB buffers**, both `512*512*4`: one array of cell *pointers* and
 one flat `uint32` *material* array. The sub-block levels are 64x64 (`Allocate64x64`) and 4x4 (the
 coarse grid).
 
-### The 0x20-byte ore/spawn record
+### The 0x20-byte spawn record
 
 | offset | meaning |
 |---|---|
@@ -169,8 +164,8 @@ coarse grid).
 | +0x04 | y in pixels |
 | +0x08 | tile width in tiles (1 for wang records, 0 for procedural); the Lua call receives it times 10 |
 | +0x0C | tile height in tiles (same values); the Lua call receives it times 10 |
-| +0x10 | a byte read from wang plane D |
-| +0x14 | **wang script id** (colour - 1) |
+| +0x10 | a byte from wang plane D; passed to Lua as the fifth argument (`is_open_path`) |
+| +0x14 | the spawn function: a script id when collected, read as a pointer to the function name when called |
 | +0x18 | set for procedural records: a spatial rect query must succeed before the Lua call |
 | +0x1C | owning biome |
 
@@ -185,6 +180,27 @@ coarse grid).
 | +0x238 | float threshold (default `0.5`) on the pixel's x **in wang tiles**; below it the pixel is air |
 | +0x234 | default `1.0`, passed to the tile helper as a noise-blend amount |
 | +0x23C | default `0`; selects one of three tile-shape helpers |
+
+### Wang map planes
+
+The built map at `Biome + 0x1D4` is four 0x20-byte plane headers at `+0x00`, `+0x20`, `+0x40`,
+`+0x60`, then a record vector at `+0x80`. Each header:
+
+| field | meaning |
+|---|---|
+| `+0x00` / `+0x04` | width / height |
+| `+0x08` / `+0x0C` | element count / capacity |
+| `+0x18` | data pointer |
+| `+0x1C` | "has data" flag; accessors return garbage when it is zero |
+
+| accessor | plane | element |
+|---|---|---|
+| `0x0092a1d0(plane, x, y)` | B, material id + 1 | `uint16` |
+| `0x0092a3a0(plane, x, y)` | C, spawn index | `uint8` |
+| `0x0092a430(plane, x, y)` | D, mask | `uint8` |
+
+The accessors take a plane header, not the map base. The map's `+0x94` holds a scale of
+`width * 5` (`0x0086b830`).
 
 ## Enums
 
@@ -264,16 +280,9 @@ If you are writing a world generator that produces Noita-compatible worlds, the 
    type - because terrain, liquids, fire and gas have completely different costs and the game's
    performance depends on terrain taking the cheap path.
 
-## What is not recovered
+## Known gaps
 
-Stated once here rather than repeated on each page.
-
-- The cell type names for 1, 2 and 4. Type 3 is established as "not an object"; the others are
-  only established as "allocates 0x40 / 0x3C / 0x28 bytes".
-- What `0xFFC0FFEE` does. It is provably reserved - the game refuses it in `materials.xml` "because
-  it has a special meaning in the wang map" - and provably present in four shipped templates, 2801
-  pixels in total. Its effect is not identified.
-- How a template colour is mapped to a `wang_scripts.csv` row, and how the CSV and the per-biome
-  `RegisterSpawnFunction` registrations are combined. Fourteen of the 30 CSV colours occur in
-  shipped templates; the reader of the CSV is outside the recovered band.
-- Whether `add_perlin_scale_y` is dead or read on a path not recovered.
+- Names of cell types 1, 2 and 4 (only their sizes, 0x40 / 0x3C / 0x28 bytes, are known).
+- The effect of the reserved wang colour `0xFFC0FFEE`.
+- What `height_index` in `_biomes_all.xml` controls.
+- Where the per-material wang fields `CellMaterial + 0x234` / `+0x23C` come from (they have no XML name).

@@ -38,6 +38,11 @@ decides which copy of a file your mod gets.
 | page | what is in it |
 |------|---------------|
 | [docs/lua-execution.md](docs/lua-execution.md) | **How a line of your Lua gets run.** One `lua_State` per mod (and it is LuaJIT, not stock 5.1), the six libraries and five removed globals, the game's own injected `dofile`/`dofile_once` source, load order, the globals-table callback dispatch, the nine modding APIs that are deleted after init, error dedup, and why C++ can never resume a Lua coroutine. |
+| [docs/sprite-xml.md](docs/sprite-xml.md) | **Sprite XML files** - every attribute of `<Sprite>`, `<RectAnimation>`, `<Event>`, `<ChildAnimations>` and `<Hotspot>`, with the real defaults (animations loop by default; `frames_per_row` defaults to 9999). |
+| [docs/materials-xml.md](docs/materials-xml.md) | **Material XML** - all `<CellData>` attributes with the type the game really parses and its default (`lifetime` is an int, the gas speeds are bytes, `fire_hp="-1"` is legal), plus the `<Reaction>` attribute list. |
+| [docs/fonts.md](docs/fonts.md) | **Font XML files** - `xml` vs `bin` by extension, the four metric elements, root colour attributes, and how `Char` differs from `QuadChar`. |
+| [docs/language-xml.md](docs/language-xml.md) | **Language files** - the thirteen `<Language>` attributes (name, fonts, UI offsets), their defaults, and why the shipped files have no `key`. |
+| [docs/mod-xml.md](docs/mod-xml.md) | **Every `mod.xml` attribute** - the twelve the game reads, their real defaults, why `"true"` is false, and the attributes people write that nothing reads. |
 | [docs/vfs.md](docs/vfs.md) | **How a string becomes bytes.** The device list and why first-match-wins means your mod shadows `data/`; the five `??XXX` mounts and what they resolve to; the extension + prefix + blacklist gate on `ModTextFileGetContent`; why `ModDoesFileExist` and `ModTextFileGetContent` disagree about case; and the undocumented `data.wak` archive that actually holds 14 745 of the game's files. |
 
 ### The game's own interface
@@ -69,11 +74,12 @@ attributes spread over five element types, not in a settings struct.
 | page | what is in it |
 |------|---------------|
 | [docs/worldgen.md](docs/worldgen.md) | **The pipeline.** The world is 70 x 48 chunks of 512 x 512 cells; the biome map is a Lua-driven PNG; the two phases and the 24 ordered generation steps. |
-| [docs/worldgen-biomes.md](docs/worldgen-biomes.md) | **The biome data model.** All 87 `Biome` fields with compiled-in defaults, `BiomeModifiers`, `RandomColor`, and the three topology types. |
+| [docs/worldgen-biomes.md](docs/worldgen-biomes.md) | **The biome data model.** All `Biome` fields with compiled-in defaults, `BiomeModifiers`, the biome-entry message, and the three topology types. |
 | [docs/worldgen-terrain.md](docs/worldgen-terrain.md) | **How a pixel becomes a material.** The three generators, the cave noise, and the ore-placement algorithm in full pseudocode - including that `material_index` is a sort key and the XML order is irrelevant. |
-| [docs/worldgen-wang.md](docs/worldgen-wang.md) | **Wang tiles.** The template PNG format, the herringbone run-length rule, the four planes, and the colour-to-Lua-function table. |
+| [docs/worldgen-wang.md](docs/worldgen-wang.md) | **Wang tiles.** The template PNG format, what each pixel colour means, the four map planes, `wang_scripts.csv` and `RandomColor`. |
 | [docs/worldgen-pixelscenes.md](docs/worldgen-pixelscenes.md) | **Pixel scenes, vegetation, backgrounds, decor.** The authored-room format, the three tree-placement variants, and the chunk-boundary containment test. |
 | [docs/worldgen-reference.md](docs/worldgen-reference.md) | Addresses, struct offsets, enums, the data-file inventory, and a reimplementation checklist. |
+| [docs/weather-config.md](docs/weather-config.md) | **`weather_config.xml`** - the sixteen sky/parallax settings the game reads, their defaults, and the five shipped attributes that do nothing. |
 
 ## The short version
 
@@ -140,8 +146,8 @@ attributes spread over five element types, not in a settings struct.
   executable carries every field name, type and in-source description as string literals) plus
   the constructors that write the compiled-in defaults, cross-checked against the shipped XML.
   Where a field could not be paired to an offset with confidence the page says `?` rather than
-  guessing. The enum integer values are game data and are not recovered;
-  [docs/worldgen-reference.md](docs/worldgen-reference.md) lists what is missing.
+  guessing. [docs/worldgen-reference.md](docs/worldgen-reference.md#known-gaps) lists what is
+  still missing for world generation.
 - The signatures in this reference are quoted from the game, so any typos in them are the
   game's. Where the enforced arity disagrees with the signature, both are shown.
 
