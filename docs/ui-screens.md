@@ -319,9 +319,34 @@ get their `item_bg_*.png` background at scale 0.5 and alpha 0.09.
 
 ### Game over — `0x006e51e0`
 
-The title is a **slide-in from the right** driven by a per-frame accumulator: scale is
-`clamp01(ease(t))`, x is `slot − ease(t) * slot − 48`, with a different trailing offset for the
-completed variant. Sprites: `game_over.png`, `game_completed.png`, `record.png`.
+The screen is skipped entirely when the run flag `ending_no_game_over_menu` is set. It uses
+`game_completed.png` instead of `game_over.png` when the run flag `ending_game_completed` is set.
+`record.png` belongs to the stat rows.
+
+The title is the first widget in a vertical layout, so its position can be recomputed from Lua:
+
+| | Value |
+|---|---|
+| layout origin | `screen_width * 0.5`, `screen_height * UI_GAME_OVER_MENU_LAYOUT_TOP_EDGE_PERCENTAGE / 100` (`19` in the shipped `magic_numbers.xml`) |
+| layout margins | x `4`, y `0` |
+| horizontal alignment | centred on the origin (option bit `0x10000`, `GUI_OPTION.Align_HorizontalCenter`), so a replacement PNG stays centred |
+| vertical offset | `slide - 3` for `game_over.png`, `slide - 4` for `game_completed.png` |
+
+The title **rises into place vertically**; it does not move sideways. With `t` growing by `1/60`
+per drawn frame, `slide = 15 * (1 - e)`, where `e = u * (2 - u)` and `u = clamp01(1.3 * t)`. It
+settles after about 0.77 seconds at `t`-driven frame counts. The alpha argument statically resolves
+to `clamp01(2 * sin(pi * t))`; that this makes the title blink has not been checked in game. The
+`-48` also visible in this function is a column offset handed to the stat-row helper, not part of
+the title's position.
+
+Addresses: layout `0x006e548f`, easing vtables at `0x01155b78` (alpha, `0x00de15d0`) and
+`0x01155b6c` (slide, `0x0059f060`), image call `0x006e55ec`. The timer `0x012076b8` is only written
+by the draw function and by what appears to be a static initialiser at `0x006e9ca4`; no per-death
+reset was found, so whether a second death in one session replays the animation is unverified.
+
+Vanilla reaches this screen from `OnPlayerDied` in `data/scripts/init.lua`, which calls
+`GameTriggerGameOver()`. That sets the game-over byte (`+0x90`) through `0x006b84f0`, and the
+per-frame runner at `0x006b26f0` calls this function from then on.
 
 Then a run of stat rows through one helper, which computes the "is this a record" flag by
 comparing the run's 64-bit value against the stored best and prefixes a record with the

@@ -20,7 +20,9 @@ pointer into one build.
 |---|---|
 | What is it? | a device list plus a mount table, owned by a static singleton |
 | Search order | **first device that answers wins**, in registration order |
-| Do mods shadow `data/`? | **yes** - the mod device is inserted at the *front* of the list |
+| Do mods shadow `data/`? | **yes** - one shared mod device, holding every mod's files, is inserted at the *front* of the list |
+| Two mods ship the same `data/` file? | **the mod later in the load order wins**; the loser stays readable under `mods/<loser>/...` |
+| Which mod's copy is in use? | [no getter, but it can be worked out from Lua](#who-owns-this-file) |
 | Is it case-insensitive? | for most reads, yes - the path is lowercased first. But not all |
 | Can Lua read anything? | no - only `data/` and `mods/`, and only 7 file extensions |
 | Can Lua read a mod's own `mod.xml`? | **no** - explicitly blacklisted; you get `""`, which is truthy |
@@ -146,21 +148,58 @@ There is no longest-prefix match, no scoring, and no merge. Order is the whole s
 
 ### Mods go to the front
 
-At mod-discovery time the game inserts a mod device with `std::vector::insert` at
-`devices.begin()` (`0x008af2b0`, called twice from the mod-initialisation function at
-`0x00834620`, both times with the vector's own begin pointer as the position).
-`vector::insert` places the new element *before* the position it is given, and the position
-given is the first element. So the mod device is searched **before** the base filesystem
-device, and a mod that ships `data/scripts/foo.lua` shadows the vanilla
-`data/scripts/foo.lua`. That is the whole mod-override mechanism: there is no diffing, no
-content merging, and no notion of "unshadowing".
+The mods do not get a device each in the list. The mod-initialisation function (`0x00834620`)
+creates **one** `ModDiskFileDeviceCaching`, adds every active mod's files to it, and inserts
+that single device at `devices.begin()` when it has finished (`0x008af2b0`, `vector::insert`,
+with the vector's own begin pointer as the position). After start-up the list is:
 
-There *is* one per-file structure on the read path, and it is worth not confusing with an
-override table. `ModDiskFileDeviceCaching` is 12 bytes - vtable, a container at `+0x04`, and a
-device pointer - and its `open` (`0x0082cc80`) lowercases the path and looks it up in that
-container on **every** open. The container is built once per mod initialisation (the progress
-line is `Mod filesys cache build time`). It is a path-resolution index, not a shadow table:
-it does not change which device wins, only how that device finds its own files.
+```
+ModDiskFileDeviceCaching  ->  WizardPakFileDevice (data.wak)  ->  disk
+```
+
+A second code path does insert one `ModDiskFileDevice` per mod, but it is behind a flag
+(`0x01207ec4`) whose only write in the binary sets it to 1 just before the loop, so that path
+never runs. The per-mod `ModDiskFileDevice` objects still exist. Each one reads its own mod's
+disk directory, and the shared map points at it.
+
+### The file map
+
+The caching device is 12 bytes: a vtable and, at `+0x04`, a `std::map` keyed on the lowercased
+path. A node looks like this:
+
+| node offset | contents |
+|---|---|
+| `+0x10` | key: the lowercased path |
+| `+0x28` | path to pass to the owning device |
+| `+0x40` | flag: the mod has a Workshop id; selects a different open slot on the device |
+| `+0x44` | the mod's `ModDiskFileDevice` |
+| `+0x48`, `+0x4c` | `ModTextFileSetContent` buffer and its size |
+| `+0x50` | index of the mod that set that content, `-1` for none |
+| `+0x54` | **redirect**: another key in the same map |
+
+The map is filled by `0x00833570`, one recursive directory walk per mod, in load order. The
+progress line is `Mod filesys cache build time`. For each file, except the three descriptor files
+named under [What Lua is allowed to read](#what-lua-is-allowed-to-read), it writes:
+
+1. `mods/<id>/<relative path>` -> that mod's device. The key is the same whether the mod is a
+   local folder or a Workshop item, so a Workshop mod is addressable as `mods/<id>/...` even
+   though it is not under `mods/` on disk.
+2. If the relative path starts with `data/`: `data/<rest>` -> **redirect** to the key from step 1.
+
+Step 2 assigns without checking whether the key is already there. **So when two mods ship the same
+`data/` file, the mod processed last overwrites the redirect and wins.** Nothing is logged and
+nothing is merged. Both `mods/<id>/...` keys survive, so the loser's copy can still be read by its
+full path.
+
+An open (`0x0082cc80`) lowercases the path and looks it up, then uses the first of these that
+applies:
+
+1. no node: this device declines, and the search moves on to `data.wak` and the disk
+2. a content buffer: serve those bytes from memory
+3. a redirect: open that key instead
+4. otherwise: ask the owning device
+
+The caching device's exists test (`0x0082caa0`) only asks whether the key is in the map.
 
 Across a mod hot-reload only `DiskFileDevice` and `WizardPakFileDevice` instances survive;
 the mod device is torn down and rebuilt (`0x008358d0`, which deletes every element that is
@@ -314,10 +353,9 @@ A path with **no** separator is returned unchanged, not emptied. The two marker 
 single characters, `/` and `\`, but they are built at run time so their identity is an
 inference from the surrounding code rather than something the file image shows.
 
-This is what makes the documented equivalence true: `mods/mod/data/file.xml` and
-`data/file.xml` name the same file, because the canonical key is the lowercased path with
-its leading component removed, and the mod's directory is matched separately, by the mod
-device, not by the path string.
+This helper only serves the blacklist test. The documented equivalence of
+`mods/mod/data/file.xml` and `data/file.xml` comes from the redirect in
+[the file map](#the-file-map), and it holds only for the mod that won that `data/` path.
 
 ### Separator handling is not normalised
 
@@ -348,6 +386,9 @@ neither the extension allowlist nor the `data/`+`mods/` prefix check - it just a
 device list. It also has a fallback: if the file-system singleton is null it calls
 `_findfirst64i32` on the raw path, bypassing the VFS entirely.
 
+The binding not lowercasing matters less than it looks for mod files: the caching device, first
+in the list, lowercases for itself. The difference shows on the devices after it.
+
 Practical upshot: `ModDoesFileExist` and `ModTextFileGetContent` answer different questions.
 The clearest case is not case at all - `ModDoesFileExist("mods/mine/x.png")` is `true` while
 `ModTextFileGetContent("mods/mine/x.png")` is `""`, because only one of them applies the
@@ -372,14 +413,63 @@ sentinel, so a double close is a no-op.
 
 ## Recording who changed what
 
-When a mod replaces a file's content, the game remembers which mod did it, so that
-`ModTextFileWhoSetContent` can answer. The registry is an object at `0x01207ec0` whose
-`+0x04` is a hash container keyed on the lowercased path, holding a **mod index**; the node
-layout (an `int` at `+0x50` with a `-1` "no mod" sentinel, a second string at `+0x54`, and a
-secondary lookup that takes a node rather than a key) rules out a `std::map`. The index is
-resolved back to a mod id by indexing the 0x60-stride mod table, which is where the `0x60`
-from [lua-execution.md](lua-execution.md) comes from. A path that is not in the registry
-returns an empty string, not an error.
+There is no separate registry. `0x01207ec0` is the caching device itself, and
+`ModTextFileSetContent` (`0x0082e350`) and `ModTextFileWhoSetContent` (`0x0082e970`) both work on
+[the file map](#the-file-map).
+
+**Setting** finds or creates the node. If the node has a redirect, it follows it, so
+`ModTextFileSetContent("data/x.xml", ...)` writes to the node of the mod that won `data/x.xml`. It
+replaces any earlier buffer, then stores the calling mod's index at `+0x50`. Only the latest setter
+is kept. While no mod is current (`0x01207f0c` is 0), the content is stored but the index is not
+updated.
+
+**Asking** finds the node, follows the redirect, and turns `+0x50` into a mod id through the
+0x60-stride mod table (the `0x60` from [lua-execution.md](lua-execution.md)). A missing node or
+`-1` returns an empty string, not an error.
+
+The directory walk never writes `+0x50`. So **`ModTextFileWhoSetContent` says nothing about who
+ships a file**: a mod that replaces `data/x.lua` by shipping its own copy gets `""`, the same answer
+as an untouched vanilla file.
+
+## Who owns this file?
+
+No API returns the winner, but the map's rules make it computable in plain Lua:
+
+- **Load order is known.** `ModGetActiveModIDs` (`0x008385a0`) walks the same table the
+  initialisation loop appends to, in order, and that same loop walks each mod's files.
+- **A mod's own key always exists.** `ModDoesFileExist("mods/<id>/data/x.lua")` is one map lookup.
+
+The last mod in load order that has the file is the one that won:
+
+```lua
+-- which mod's copy of a data/ file is in use, or nil for vanilla
+local function data_file_provider(path)
+    local ids = ModGetActiveModIDs()
+    for i = #ids, 1, -1 do
+        if ModDoesFileExist("mods/" .. ids[i] .. "/" .. path) then return ids[i] end
+    end
+end
+```
+
+This is derived from the code and has not been run in the game. The full answer has four separate
+parts, because a file can have a different author for each:
+
+| question | how |
+|---|---|
+| path starts `mods/<id>/` | that mod |
+| who shipped the `data/` file | the function above, or vanilla if it returns nil |
+| who last replaced the content | `ModTextFileWhoSetContent(path)`, `""` for nobody |
+| who appended to it | `ModLuaFileGetAppends(path)`: each entry is a path, normally `mods/<id>/...` |
+
+A setter hides whatever it replaced: the bytes in use are the setter's, even if another mod shipped
+the file. The setter may still have started from the shipped text, because mods usually read, edit
+and write back.
+
+One false positive is possible. `ModTextFileSetContent("mods/a/data/x.xml", ...)` creates a key for
+a file mod `a` never shipped. The exists test then says yes, but `data/x.xml` has no redirect to it.
+
+In one collection of 65 mods, 41 `data/` files are shipped by more than one mod, so the collision
+is real: `data/enemies_gfx/player.png` by four mods, and `data/scripts/magic/kantele.lua` by three.
 
 ## Directory enumeration
 
@@ -577,7 +667,9 @@ two `worldtree_*.png` in a stock install are written by normal play, not by a de
 
 The minimum that reproduces observed behaviour:
 
-1. A list of devices, searched front to back, first hit wins. Put the mod device first.
+1. A list of devices, searched front to back, first hit wins. Put one shared mod device first,
+   holding a path map filled in load order, where a later mod's `data/` redirect replaces an
+   earlier one's.
 2. A mount table of `(5-char prefix, root, directory)`, linearly matched, expanded by
    concatenating directory and `path[5:]`.
 3. Lowercase the path before lookup - but keep the un-lowercased form for the mod-prefix
@@ -593,15 +685,8 @@ The minimum that reproduces observed behaviour:
 
 ## Undetermined
 
-- **How the archive device orders against the *mod* devices.** The archive-vs-disk half of
-  this question is settled: the archive device is inserted at `begin()` during start-up, so
-  it precedes the disk device, and the only case where it matters is after
-  `data_wak_unpack.bat` or in a development tree. Against mod devices it is not - mod devices
-  are also inserted at `begin()`, and the mod-initialisation function re-runs on every save,
-  so whichever insert happened last is first. Not traced.
-- Whether the mod device matches its prefixes by longest or first-listed. The device list is
-  ordered mod-first, so a file present in two enabled mods resolves to the one inserted
-  first; the exact insertion order among several mods was not traced.
+- What decides the load order itself. The loop follows the list from `0x008380f0`, which was not
+  traced. `ModGetActiveModIDs` reports the result either way.
 - The initial value of the user-data root global `0x01204ba0`, and which physical directory
   `root = 0` resolves to. It is set only by the two command-line flags and lives in BSS, so
   its load-time default is decided by start-up code outside the paths read here. The flag

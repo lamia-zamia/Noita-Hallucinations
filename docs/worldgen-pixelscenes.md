@@ -67,6 +67,11 @@ There are no compiled-in defaults, because nothing constructs a `PixelScene` wit
 | +0x74 | `clean_area_before` | bool | erase what is there first |
 | +0x5C | `just_load_an_entity` | string | place an entity instead of blitting |
 
+Two more fields are not attributes. `+0x88` and `+0x8C` are the width and height, read from the
+material image when the scene is queued (`0x0087f3d0`). They are not saved, so a scene loaded straight
+into the old list (see [below](#the-two-lists)) has both at 0. `+0x00` is a target world: when it is
+set, as `LoadPixelScene` sets it, queueing tries to place the scene at once.
+
 `clean_area_before` is the destructive one: it carves a rectangle before stamping, which is how
 the game punches the entrance shafts into otherwise solid rock.
 
@@ -91,6 +96,34 @@ Two things place pixel scenes, and they are different:
 2. **`LoadPixelScene`**, reachable from Lua as
    `LoadPixelScene( materials_filename, colors_filename, x, y, ... )`. This is the supported
    way for a mod to stamp a room at a chosen coordinate, and the same code path the game uses.
+
+### The two lists
+
+Every scene, from any source, lives on one manager object at `world + 0x458`, where `world` is
+`global_getter() + 0x10` (`0x00439bb0` on the Steam build). The manager starts with two
+`std::vector<PixelScene>` of 0x90-byte records, named by their save-file keys:
+
+| offset | save key | holds |
+|---|---|---|
+| +0x00 | `mBufferedPixelScenes` | scenes waiting to be processed |
+| +0x0C | `mOldPixelScenes` | scenes the game has finished with |
+
+`0x00882dd0` walks the queue and calls `0x00880fb0` on each scene. A non-zero result moves that one
+scene to the old list and ends the pass. The result was not traced further, so being in the old list
+does not prove the scene stamped successfully.
+
+Scenes enter in two ways:
+
+- `0x0087f3d0` queues a scene. Its callers are `LoadPixelScene`, `ProceduralTerrain::Init`
+  (`0x0087a900`), the file loader below, and two unnamed functions (`0x00629840`, `0x00bed650`).
+- `0x0087edd0` loads a scene file. It queues the file's buffered scenes through `0x0087f3d0`, and
+  pushes its old scenes straight onto the old list.
+
+Unless the 10th `LoadPixelScene` argument is true, queueing silently drops a scene matching one
+already in either list on position, the three image names, both skip flags and the entity file.
+
+So reading these two vectors sees every scene the game holds, without hooking anything. A mod's
+wrapper around the Lua function sees only that mod's Lua callers, and only in scripts it reached.
 
 The biome flag `pixel_scene` ("for 'pixel scene' biomes, this forces the loading before hand")
 makes a biome's scenes load eagerly rather than on demand, so that a room exists before the

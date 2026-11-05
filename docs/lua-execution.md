@@ -91,6 +91,36 @@ without colliding with another component. `CREATE_NEW_EVERY_EXECUTION` is deprec
 When components use the shared mode, store per-entity state in a mod-namespaced table keyed by
 entity ID; one unkeyed global can make separate entities overwrite one another.
 
+### How a LuaComponent script is entered
+
+Every native route into a component script ends in `lua_pcall`:
+
+- `LuaSystem::Execute` (`0x00ba6e70`) handles `script_source_file`. It reads the path from
+  `LuaComponent+0x48` and the entity id from its first argument. The shared mode uses a cached
+  `LuaManager` for that path (`0x00ba6c80`, named `LuaSystem - CachedScript - <path>`), so shared
+  scripts are grouped by path and **not by mod**. It calls `____cached_func` and, the first time,
+  `init`, through the wrapper `0x007ee2e0`.
+- 25 further `LuaSystem` functions between `0x00ba7d00` and `0x00ba9c60` call the same wrapper.
+- `CREATE_NEW_EVERY_EXECUTION` builds a new state and uses `DoFile` (`0x007ef600`) instead.
+
+`ItemPickUpperSystem` can also start Lua itself. Timed traces show it running `data/scripts/gun/gun.lua`
+inside a newly built state, which compiles that file and everything it loads, including `gun_actions.lua`
+and any mod's appends to it. In one session with a large spell-adding mod, each round cost about 26 ms of
+compiling, about 160 times in 80 seconds. Appending a large generated file to `gun_actions.lua` therefore
+adds to this cost every time it happens, not just once at startup. What exactly triggers a round has not
+been traced beyond the system itself.
+
+Lua does not all run on one thread. In one timed session on `noita_dev.exe`, `OnModPostInit` ran on
+a different thread from the game loop, which made all 6 901 buffer swaps and about 99% of the
+126 177 `lua_pcall` calls. Per-frame callbacks are on the game-loop thread. Which scripts made the
+other 1 406 calls was not recorded, and whether the two threads ever run Lua at the same time was
+not checked.
+
+The chunk name given to `luaL_loadbufferx` (`0x007edef0`) is the bare virtual path, without Lua's
+usual `@` prefix, so `debug.getinfo(f, "S").source` is `mods/<id>/...` or `data/...`. A function
+added by `ModLuaFileAppend` comes from its own chunk, but the engine still enters through the main
+chunk of the original file, so anything timing the `lua_pcall` sees the original file's path.
+
 The builder does the same thing for every state, in this order:
 
 1. `luaL_newstate()`, store at `this+0x38`.

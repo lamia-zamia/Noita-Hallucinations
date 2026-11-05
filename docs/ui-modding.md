@@ -6,13 +6,12 @@ wild actually achieve.
 
 ## The one-paragraph answer
 
-The game's own UI is **not reachable through the modding API**. It is C++, it is closed, and
-there is no getter for any of its state — no way to read the health bar's rectangle, query the
-selected inventory slot, add a settings tab, or move a widget. What *is* reachable is
-everything around it: you can draw your own UI with the same `Gui*` API the game uses, you can
-own the mod-settings page, you can rewrite the game's text and fonts and layout tunables as data
-files, you can patch vanilla Lua scripts, and with FFI you can byte-patch the executable.
-Realistically you **layer over** the vanilla UI or **replace its content**, never its code.
+The game's UI is C++ and its widget state is not exposed: Lua has no getter for the health-bar
+rectangle or selected wand slot, and no API to insert or reorder native widgets. That does not make
+the UI untouchable. Data tunables can move or scale several HUD groups and menu panels, component
+fields control dynamic HUD icons, and files control many sprites and labels. A mod can hide much of
+the native HUD, draw a replacement with the same `Gui*` API, and keep the game's state underneath.
+The remaining gaps are native interaction behavior and UI structure that has no data control.
 
 ## What is genuinely open
 
@@ -153,6 +152,52 @@ Dear ImGui can be injected into the game process and exposed to Lua, with the ga
 pump and GL swap handed to it. Requires `request_no_api_restrictions="1"` and a real DLL.
 Useful for developer tooling, not for replacing game screens.
 
+### Share one GUI library across mods
+
+Noita gives each mod its own Lua state. A callback, table, GUI handle or hook closure registered
+by one mod is not shared with another. Copying a renderer into every mod and letting each copy
+draw would therefore create several independent renderers, not one shared instance. See the
+[Lua execution model](lua-execution.md) and [virtual file system](vfs.md).
+
+A shared library can instead be appended to `data/scripts/init.lua` from each participating mod's
+early `ModSettingsUpdate` callback. The append runs as part of the target script, so library copies
+and hook-registration files appended there can use one game-script Lua state. The settings
+callback's own state remains separate; use it to register the append, not to hold GUI handles or
+hook closures. The `biome_modifiers_patch` pattern demonstrates registering this append before the
+game's init script loads.
+
+The test library implements this pattern by inspecting active mods' version headers, choosing the
+highest `major.minor.patch`, and loading only that implementation into the shared state. Equal
+versions need identical contents; a stable mod-ID tie-break makes selection deterministic. Other
+mods can append hook registrations after the library and add behavior through its shared hook table
+without a separate host mod or settings page. The version election and callback/draw ordering in
+this implementation have not yet been runtime-tested.
+
+This is a composability path for Lua code, not access to the game's native widget tree. For
+recreation, supported tunables can move the stat bars, quickbar, and expanded inventory out of the
+way; `UIIconComponent.display_in_hud` can suppress the dynamic status/perk row. The renderer then
+draws replacement content through the GUI API. It still cannot read native widget rectangles,
+vanilla tooltip text, or the selected wand slot, and moving a panel does not replace its native
+input behavior. See [the screen-by-screen limits](ui-screens.md),
+[data-driven UI](ui-data-driven.md), and [the documented modding surfaces](ui-modding-2.md).
+
+For example, a mod can move the HUD cluster off-screen through its existing magic-number file:
+
+```xml
+<MagicNumbers
+  UI_BARS_POS_Y="10000"
+  UI_BARS2_OFFSET_X="10000"
+  UI_FULL_INVENTORY_OFFSET_X="10000"
+  UI_QUICKBAR_OFFSET_Y="10000"
+/>
+```
+
+Register that XML during the mod's normal initialization with `ModMagicNumbersFileAdd`. These are
+group offsets, not a blanket hide flag; the exact result depends on which screen is open and should
+be checked in-game. For the dynamic icon row, set `display_in_hud` false on the relevant
+`UIIconComponent`s while the replacement is active, then restore their saved values when handing
+control back.
+
 ## What is closed, and what people do instead
 
 ### No vanilla UI state is readable
@@ -165,8 +210,8 @@ them has fudge constants with apologetic comments:
 local offset = 2 -- why, nolla
 ```
 
-This is the root difficulty and it is worth being blunt about: you cannot anchor to the vanilla
-HUD. You can only guess where it is and hope.
+There is no runtime geometry getter for anchoring to an individual vanilla widget. Group tunables
+can move a supported cluster; precise per-widget layout still has to be reconstructed or measured.
 
 The options screen is the one place you are handed a `gui` that is not yours, so it is the only
 place you can draw outside your own widget tree. It does not help with geometry: the HUD, the

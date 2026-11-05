@@ -124,6 +124,11 @@ There is no fixed-timestep accumulator either — one render frame is one simula
 unconditionally — so this is not a spiral of death. The stall is pure per-frame cost, and
 it is proportional to how much area one event dirties.
 
+In a timed retail session (`vsync="2"`, Windows), the game held about 60 FPS by calling `SDL_Delay`
+about once per frame, averaging 10.6 ms per call, while the buffer swap took only 0.2 ms. Frame time
+therefore says little about load until it passes about 16.7 ms: subtract that delay to see the real
+work, which was 6.24 ms per frame in that session.
+
 ### A separate queue budget is live
 
 `GRID_MAX_UPDATES_PER_FRAME` (default `128`) limits the number of coordinate-bearing grid
@@ -249,6 +254,33 @@ for any address inside it (`.text` is RVA `0x1000..0xb06e1e`, file offsets `0x40
 launch the patched copy from something that does not go through Steam's launcher, or
 replace `noita_dev.exe`, which Steam does not verify.
 
+### Finding things without fixed addresses
+
+Addresses and struct layouts differ between builds, including `noita.exe` and `noita_dev.exe` from
+the same date. For example, `LuaSystem::Execute` is at `0x00ba6e70` in one and `0x00cc4aa0` in the
+other, and the `LuaComponent` fields it reads sit 8 bytes later in the dev build. Three kinds of
+anchor gave matching results on those two files:
+
+- **Import table names.** `lua_pcall` and `SDL_GL_SwapWindow` are called through import slots.
+- **MSVC RTTI class names.** Class name, then type descriptor, then the complete object locator with
+  offset 0, then the vftable. Slot 3 is the per-frame update on every `SystemManager` system
+  (135 on retail, 136 on dev), called as `thiscall` with one float and ending in `ret 4`. `DeathMatch`
+  slot 3 is the top-level update, and slot 4 appears to be its draw (same convention, passes its
+  argument to rendering calls). Accept a vftable only in a non-executable section and only if code
+  writes it, because the locator's address can also occur by chance inside code. Each
+  `ComponentUpdator<C, S>` base has its own vftable with the same slot 3, so use the system's own.
+- **The updated-entity global.** `GetUpdatedEntityID` (`0x007a1050`) returns a global (`0x01204ff0` on
+  retail, `0x01327fe8` on dev). Systems write the entity id there before updating its component, then
+  reset it with `mov dword [global], -1`. That instruction occurs exactly 135 times on retail and 136 on
+  dev, once per system, which also makes the address easy to find in any build: it is the most common
+  target of that instruction, and the next target occurs twice. Reading it from another thread shows
+  which entity the game is updating. Systems can take a dispatch path that does not write it inline
+  (`0x00d2b4c0` in the loops checked); whether the workers write it there has not been checked.
+- **Unique string literals.** `LuaSystem::Execute` is the function holding the only `push` of that
+  string. Do not assume padding before a function: this one directly follows a `ret 4`.
+
+These were checked on those two Steam files only, not on a GOG build.
+
 ### Verifying a patch did what was predicted
 
 - **`autosave-marker-period`** — count writes to `.autosave`, `.autosave_player`,
@@ -260,12 +292,24 @@ replace `noita_dev.exe`, which Steam does not verify.
   pop-in. Note this changes travel stutter only. It does nothing for the explosion stall,
   which is the unbounded cell loop in section 2.
 
-For profiling in general: the game ships a **built-in profiler that writes named counters**
-to `profiler_game.txt` in the game directory — `grid_chunk_count`, `grid_active_count`,
-`grid_particles_count`, `thread_pool_jobs`, `thread_pool_jobs_this_frame`,
-`box2d_grid_world_bodies`, `world_tree_alloc_used` / `_reserved`, `entity_count`.
-`grid_chunk_count` is the number to watch when testing anything about save growth, and
-`grid_active_count` when testing anything about the cell loop.
+For profiling in general: **`noita_dev.exe` has a built-in profiler; retail `noita.exe` does
+not** (the timer labels and output file names are absent from the retail binary). The dev build
+writes two files to the game directory:
+
+- `profiler_game.txt` holds named counters: `grid_chunk_count`, `grid_active_count`,
+  `grid_particles_count`, `thread_pool_jobs`, `thread_pool_jobs_this_frame`,
+  `box2d_grid_world_bodies`, `world_tree_alloc_used` / `_reserved`, `entity_count`,
+  `lua_alloc_count`. Watch `grid_chunk_count` when testing save growth and `grid_active_count`
+  when testing the cell loop.
+- `profiler_data.txt` holds timers as `name: average A, max M, total T, call# N`, sorted by
+  total. Scopes nest, so totals overlap and must not be summed. The labels cover engine phases
+  (`GridWorld::UpdateGrid`), one entry per component system (`class LuaComponent`) and **one
+  entry per Lua script path** (`mods/<id>/.../x.lua`), which makes it the quickest way to find
+  a slow mod script. Values are milliseconds. A script's count can exceed its real runs: one
+  measured script showed 96 933 calls in this file against 1 557 `lua_pcall` entries, and its
+  total also included a little time outside the script. Scripts started from message handlers,
+  such as `script_death`, were missing from the table in that run. Dev-only work such as `PostFx::Update - hotloader` is included, so it overstates what
+  a retail frame costs.
 
 ---
 

@@ -18,7 +18,7 @@ listings at runtime, and a mod can write all of them.
 | **Perk "spent" state on the effects panel** | **yes** | sprite path + `$perk_*` strings |
 | **Wand stats card values** | **yes** | the wand's own components |
 | **Wand stats card *rows*** | no | 27 hardcoded label+icon triples |
-| **Wand inventory slots** | no | the slot list is a C++ vector |
+| **Wand quick-bar order** | **limited / unresolved** | the renderer traverses `inventory_quick` children and also reads `ItemComponent.inventory_slot` in a slot-layout path; the effective order source is unresolved |
 | **Every sprite and font the UI draws** | **yes** | replace the file in your mod's VFS |
 | **Pause menu rows, options tabs** | no | hardcoded C++ sequences |
 
@@ -239,17 +239,39 @@ give the wand card a different look by replacing all 27 `icon_*.png`. Nobody doe
 
 Being straight about the ceiling, because the list above invites the opposite conclusion:
 
-- **Wand inventory slots.** The slot list is a C++ vector behind a singleton, iterated with typed
-  getters. No component, no tag, no child-entity relationship feeds it. You cannot add a wand slot.
+- **Wand quick-bar order.** `FUN_00b7d8d0` finds the player's inventory buckets. Capacity reads in
+  `FUN_00b5d940` identify `DAT_012224f4` as the quick bucket (`quick_inventory_slots`) and
+  `DAT_012224f8` as the full grid (`full_inventory_slots_x * full_inventory_slots_y`). The compact
+  HUD path traverses the quick bucket's `+0x90` child vector, and `EntityGetAllChildren(quick)`
+  returns that same sequence (`0x007935b0`). `FUN_00b724c0`, called by the HUD renderer, also reads
+  the item's `ItemComponent.inventory_slot` field at `+0xd8` in a slot-layout path. The available
+  evidence does not establish which state determines the final visible order. In reported runtime
+  tests, reparenting changed the `EntityGetAllChildren` order but left the visible wand order
+  unchanged. Detaching two wands, exchanging their `inventory_slot` coordinates, and reattaching
+  them changed immediate component readback but did not change the HUD; later reads returned the
+  original coordinates. Direct writes while carried also read old or reverted. A further test dropped
+  two wands, exchanged their preferred coordinates, and called `GamePickUpInventoryItem`; immediate
+  readback showed the exchange, but the HUD stayed unchanged and later invocations again began with
+  the original coordinates. A follow-up changed the values after the engine update; the next
+  `OnWorldPreUpdate` sample still showed the swapped coordinates and child order. A two-stage
+  drop/write/pickup sequence then kept each requested wand-slot mapping for 120 updates in both
+  directions, without setting `mForceRefresh`; the second invocation began from the first result and
+  toggled the pair back. The child sequence can change independently while the target wand
+  coordinates still match. The non-wand child with an `ItemComponent` is returned by
+  `GameGetAllInventoryItems`, and its slot moves between `(0,0)` and `(1,0)` in the reported runs.
+  These results establish that Lua can preserve the component slot mapping through repeated engine
+  updates using the staged sequence. Changing inventory capacity at runtime is not established.
 - **Wand stats card rows.** 27 compile-time triples.
 - **Options-screen tabs and the main menu.** Fixed literal widget-id sequences.
 - **Pause menu rows.** C++, pre-baked positions.
 - **HUD icon layout.** Proportional to count, with two compiled constants for hover scale and alpha.
 
-The pattern across all of them is the same: **the vanilla UI is data-driven for its _content_ and
-hardcoded for its _structure_.** Content means sprites, labels, values, names, descriptions and
-item lists — and every one of those is yours to change. Structure means which rows exist, in what
-order, at what position — and none of it is.
+The pattern is that the vanilla UI is data-driven for much of its _content_ and hardcoded for most
+of its _structure_. The quick wand row has a mixed source: it traverses `inventory_quick` children
+and also passes item slot coordinates through a layout path. Which state controls final placement,
+and which mutation sequence reliably updates it in game, remain unresolved.
+Content means sprites, labels, values, names, descriptions and item lists — and many of those are
+yours to change. Structure means which rows exist and where they appear; most of that is fixed.
 
 ## How to verify any of this yourself
 

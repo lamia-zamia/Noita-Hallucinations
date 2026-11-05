@@ -234,6 +234,47 @@ is 41 KB of `data/scripts/biome_modifiers.lua`. The manager created during load 
 `biome_modifiers_inject_spawns` callback, which is how a mod injects spawns into a biome that
 has modifiers.
 
+### The biome-entry modifier notification
+
+The entry title and modifier notice are separate submissions to the game's important-message
+handler. Native code submits the `$log_entered` title only for a non-empty biome name other than
+`_EMPTY_`, and only when its constructed biome name has not already been recorded by the handler.
+If `mModifierUIDescription` is non-empty on that first-entry path, the game submits a second
+message with that modifier text as the **title** and `mModifierUIDecorationFile` as its decoration.
+The shipped
+`data/scripts/biome_modifiers.lua` sets these biome fields; it does not call `GamePrintImportant`
+for the entry notice. Native code uses the same notification handler that the Lua API exposes as
+`GamePrintImportant`.
+
+The empty-name and `_EMPTY_` checks gate the whole native entry handler, not just its popup. Skipping
+that handler also bypasses its optional `audio_music_enter` group update, its request for the
+`event_cues/new_biome/create` sound, and its `Message_VisitedNewBiome` event. A `GameStatsComponent`
+listener uses that event for `biomes_visited_with_wands`, which feeds no-wands-run detection; game
+data specifically notes that Hills does not count because it does not emit this event. Other native
+listeners may depend on the same event as well. These are the entry-handler effects; other uses of a
+biome's configured name were not traced, so renaming it globally may have additional consequences.
+
+This gives mods control over the modifier follow-up's text and its single decoration image. It does
+not provide a per-modifier icon slot or merge the modifier text into the biome title. Leaving
+`mModifierUIDescription` empty suppresses the modifier follow-up, but the entry title still appears.
+The exposed Lua API has no way to inspect, cancel, or reorder pending important messages, so a
+separately drawn `Gui` overlay cannot follow the native toast if earlier messages delay it. Matching
+the native animation and timing for one combined popup requires control of the native submission
+path.
+
+The entry-title text can be silenced with the usual translation override: append a later
+`log_entered` row with empty values across the language columns in `data/translations/common.csv`
+using `ModTextFileSetContent` ([translation override details](ui-modding.md#rewrite-the-games-text-fonts-and-tunables-as-data)).
+Override the row rather than deleting it: a missing key can resolve to the literal `$log_entered`
+when the missing-translation fallback flag is set. In-game testing confirms that an empty-value row
+leaves an empty important message visible: it blanks the title text but does not suppress the native
+submission. The empty item's queue and display timing have not been measured.
+
+The `GamePrintImportant` API and native submission path have no special string that cancels a
+message. The native submitter queues the title, description, and decoration even when their values
+are empty. The `_EMPTY_` check belongs to the biome-entry handler and tests the biome name before it
+submits anything; using `_EMPTY_` as the message title does not trigger that check.
+
 ## `RandomColor`
 
 Inside `<RandomMaterials>`, and the only place colour is reinterpreted:
