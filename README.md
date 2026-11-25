@@ -17,7 +17,7 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
 |------|---------------|
 | [docs/how-the-api-works.md](docs/how-the-api-works.md) | The rules that apply to all 375 functions. **Read this first** — it changes how you write mod code. |
 | [docs/api-reference.md](docs/api-reference.md) | All 375 functions: enforced arity, per-argument coercion, substituted defaults, return arity, runtime messages, shared globals. |
-| [docs/mod-images.md](docs/mod-images.md) | Editable images: pixel-call implementation, clearing, signed packed colors, native memory cost and lifetime. |
+| [docs/mod-images.md](docs/mod-images.md) | Image API implementation: pixel storage and addressing, Lua wrappers, filename lookup, allocation, ownership and reset. |
 | [docs/entity-lifecycle.md](docs/entity-lifecycle.md) | What `EntityKill` really does, when an entity disappears, why children added to a dying entity become orphans, and how `CameraBoundComponent` kills, freezes and respawns entities. |
 | [docs/sprite-stains.md](docs/sprite-stains.md) | Entity requirements for visible sprite stains, how `sprite_id` selects the sprite, and where generated UV maps are stored and named. |
 | [docs/family-notes.md](docs/family-notes.md) | Behaviour that holds across a family — `Entity*`, `Component*`, `Gui*`, `Physics*`, `Mod*` and the rest. |

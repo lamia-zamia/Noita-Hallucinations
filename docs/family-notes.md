@@ -100,7 +100,7 @@ available everywhere."* The file-patching `Mod*` functions exist only during
 initialisation; these stay callable afterwards. An invalid image id or coordinate
 makes `ModImageGetPixel` return 0 and `ModImageSetPixel` do nothing, without a log
 line. The setter returns no values. See [editable images](mod-images.md) for
-pixel-call cost, clearing, packed-color comparisons and native memory use.
+the native storage layout, pixel-access implementation, allocation and lifetime.
 
 ### Mod settings
 
