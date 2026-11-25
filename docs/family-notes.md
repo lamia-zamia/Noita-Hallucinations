@@ -97,8 +97,10 @@ Eight functions (`ModImageDoesExist`, `ModImageGetPixel`, `ModImageIdFromFilenam
 `ModImageSetPixel`, `ModImageWhoSetContent`, `ModLuaFileGetAppends`, `ModTextFileGetContent`,
 `ModTextFileWhoSetContent`) carry the caveat *"Unlike most Mod\* functions, this one is
 available everywhere."* The file-patching `Mod*` functions exist only during
-initialisation; these stay callable afterwards. `ModImageGetPixel` and
-`ModImageSetPixel` silently fail and return 0 on an invalid id — no log line.
+initialisation; these stay callable afterwards. An invalid image id or coordinate
+makes `ModImageGetPixel` return 0 and `ModImageSetPixel` do nothing, without a log
+line. The setter returns no values. See [editable images](mod-images.md) for
+pixel-call cost, clearing, packed-color comparisons and native memory use.
 
 ### Mod settings
 
@@ -117,6 +119,59 @@ push-helper `0x0078d9f0`, so it has no `lua_push*` of its own.
 
 Five functions over the run/global/biome stat stores. `StatsGetValue` is the only one whose
 signature admits `nil`; the other two getters always return a string, empty if the key is unknown.
+
+#### Reading the kill count
+
+```lua
+local run_kills   = tonumber(StatsGetValue("enemies_killed"))       -- this run
+local biome_kills = tonumber(StatsBiomeGetValue("enemies_killed"))  -- since last biome reset
+local all_kills   = tonumber(StatsGlobalGetValue("enemies_killed")) -- all-time total
+```
+
+All three getters read the same `GameStats` record and return the value as a **string**
+(hence `tonumber`). They differ only in which copy they read:
+
+| getter | source |
+|---|---|
+| `StatsGetValue` | the live session record (`0x01208780`). Refreshes `playtime` / `playtime_str` first, then copies the record and looks the key up. |
+| `StatsBiomeGetValue` | the live record **minus** a baseline snapshot at `0x01208848`. `StatsBiomeReset()` overwrites the baseline with the current values; vanilla calls it from `workshop_exit.lua`, so "biome" in practice means "since you left the last Holy Mountain". Native code also writes the baseline (`0x006b1b30`, `0x00b14820`). |
+| `StatsGlobalGetValue` | the persistent all-time record, held at `+0x1B0` in the object returned by `0x00b18750`. |
+
+**What counts as a kill.** `enemies_killed` is a plain integer at `+0x74` (`0x012087f4`) in the
+session record. Only two places in the executable increment it:
+
+- the native death handler `0x00b19c70`, when the player is credited with the kill, unless the dying
+  entity's `GameStatsComponent` sets `dont_do_logplayerkill="1"`
+  (the field's in-binary description: "if 1, StatsLogPlayerKill must be manually called from lua").
+  Vanilla sets that flag on `boss_sky.xml`.
+- `StatsLogPlayerKill(entity_id)` from Lua. It increments the counter **only** when the id
+  resolves to a live entity; with no argument it increments unconditionally. With a valid id it
+  also takes the [per-ID Progress logging path](ui-data-driven.md#adding-and-revealing-an-enemy-tile).
+
+So the counter can be bumped from Lua but never written to directly, and there is no per-species
+count exposed to Lua. The only per-species signal is the boolean run flag
+`GameHasFlagRun("new_kill_<name>")`. For a per-type tally, count yourself in a death callback.
+
+**Every `GameStats` key** that the three getters accept (case-sensitive; any other key logs
+`Config error ( GameStats ) - GetValue( … ) - couldn't find the member`):
+
+| key | type | offset | key | type | offset |
+|---|---|---|---|---|---|
+| `dead` | bool | `+0x04` | `hp` | double | `+0x80` |
+| `death_count` | int | `+0x08` | `gold` | int64 | `+0x88` |
+| `streaks` | int | `+0x0C` | `gold_all` | int64 | `+0x90` |
+| `world_seed` | uint | `+0x10` | `gold_infinite` | bool | `+0x98` |
+| `killed_by` | string | `+0x14` | `items` | int | `+0x9C` |
+| `killed_by_extra` | string | `+0x2C` | `projectiles_shot` | int | `+0xA0` |
+| `death_pos` | vec2 | `+0x44` | `kicks` | int | `+0xA4` |
+| `playtime` | double, seconds | `+0x50` | `damage_taken` | double | `+0xA8` |
+| `playtime_str` | string | `+0x58` | `healed` | double | `+0xB0` |
+| `places_visited` | int | `+0x70` | `teleports` | int | `+0xB8` |
+| `enemies_killed` | int | `+0x74` | `wands_edited` | int | `+0xBC` |
+| `heart_containers` | int | `+0x78` | `biomes_visited_with_wands` | int | `+0xC0` |
+
+The key-to-offset table is the getter at `0x005cdc00`. The types are inferred from which
+formatter each branch calls.
 
 ### Flags & globals
 

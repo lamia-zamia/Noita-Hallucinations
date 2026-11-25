@@ -114,7 +114,10 @@ Lua does not all run on one thread. In one timed session on `noita_dev.exe`, `On
 a different thread from the game loop, which made all 6 901 buffer swaps and about 99% of the
 126 177 `lua_pcall` calls. Per-frame callbacks are on the game-loop thread. Which scripts made the
 other 1 406 calls was not recorded, and whether the two threads ever run Lua at the same time was
-not checked.
+not checked. A crash capture on the same build agrees: code run from a mod's `init.lua` top level was
+on a different thread from the one that made all 2 306 later recorded engine calls. That game-loop
+thread is the process's initial thread (its stack starts at the C runtime's entry point) and runs
+`DeathMatch`'s update.
 
 The chunk name given to `luaL_loadbufferx` (`0x007edef0`) is the bare virtual path, without Lua's
 usual `@` prefix, so `debug.getinfo(f, "S").source` is `mods/<id>/...` or `data/...`. A function
@@ -446,6 +449,11 @@ asking twice returns the same object. It is the state the mod-settings dispatche
 that ran the mod's `init.lua`. The documentation generator (below) creates one more object with
 the same name.
 
+The retail settings manager is constructed with API restrictions enabled
+(`0x008387c0`). It uses the limited library set even if the mod's `init.lua`
+has unrestricted access. In particular, loading `settings.lua` does not make
+LuaJIT FFI available there.
+
 Two globals support dispatch. A pointer to the mod currently being initialised is set before
 and cleared after each call during init; the API functions read it to know who is calling.
 Only one of them complains when it is unset - `ModRegisterMusicBank`, which logs
@@ -521,6 +529,15 @@ The full text is the message followed by a stack traceback in the usual Lua layo
 
 Frames are described as `function '<name>'`, `function <source:line>` or `main chunk`; a stack
 deeper than 22 levels is abbreviated, with `...` between its first and last ten or so frames.
+
+The traceback builder (`0x007edd40`) is Lua 5.2's `luaL_traceback` ported onto LuaJIT: the same
+12/10 level split, and an unnamed C function is named by searching the globals two tables deep.
+Each frame's `<source>` is LuaJIT's `short_src`. Because chunks are loaded under their bare path
+(no `@`), that is `[string "<path>"]`, and LuaJIT cuts any path longer than **45 characters** to
+its first 45 plus `...`. The `<source>:<line>:` prefix of the message itself is written by LuaJIT
+the same way. So with long mod paths every file in one folder prints the same, for example
+`[string "mods/my_mod/files/scripts/profiler/capt..."]`. The full path is still in
+`debug.getinfo(level, "S").source`; the engine never prints it.
 The text is built on top of the Lua stack, so returning 1 hands it to `pcall`: **the error value
 your `pcall` receives is the message plus the traceback, not the original message.** If the error
 object is not a string (so `lua_tolstring` returns null), the logger substitutes the string
@@ -572,6 +589,24 @@ never resumes or yields a Lua thread.
 The strings `enable_coroutines` and the `LuaComponent` note are a *Noita* VM concept -
 entity components that run their own bytecode - not Lua 5.1 coroutines. Do not conflate
 them.
+
+**`enable_coroutines="1"` without `coroutines.lua` closes the game after about 65 000 runs.**
+After each run of a `LuaComponent` with `enable_coroutines="1"`, the engine looks up the global
+`wake_up_waiting_threads` and calls it with one number (retail `0x00ba7ec0`). That function is
+defined by `data/scripts/lib/coroutines.lua`. If the component's script never loads that file,
+the call fails with `attempt to call a nil value`, logged once with an empty traceback and then
+hidden as a recurring error. The call goes through the helper `0x007ee2e0`, which pushes an
+error handler, calls `lua_pcall`, and removes only the handler, so the error message stays on
+the VM's stack: one value per run. LuaJIT's stack holds about 65 500. Replaying that sequence
+on the game's `lua51.dll`, the call reports `error in error handling` at 65 476 leaked values
+and `stack overflow` at 65 496 (which the game logs as `Lua error - stack overflow` with an
+empty traceback). The engine's next unprotected push into that VM then raises outside any
+`pcall`, and LuaJIT's default panic prints `PANIC: unprotected error in call to Lua API (stack
+overflow)` to the console and calls `exit(1)`. The game simply closes, with exit code 1, no
+crash dump and no Windows error report. A component running every frame gets there after
+about 18 minutes at 60 fps of that entity being updated. A VM looked up by script path keeps
+the count when the entity dies and respawns. Seen in the wild with a mod's snail entity whose
+`interact.lua` component set `enable_coroutines="1"` only to define an `interacting` callback.
 
 If your mod uses `coroutine.create`, it is doing so entirely inside Lua: nothing on the C++
 side can pick the thread back up. The practical consequence is that a coroutine is bounded by

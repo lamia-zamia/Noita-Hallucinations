@@ -70,9 +70,8 @@ ghost      = min(0, hp − max(storedDamageHp, 0))
 ghostAlpha = clamp01(1 − (now − lastDamageFrame) / fadeFrames)
 ```
 
-`fadeFrames` is a global divisor (`0x01053dc0`) whose value is unresolved from the static data
-dump. The fade is frame-based; its duration in seconds depends on that value and the game's frame
-rate.
+`fadeFrames` is **30** (`0x01053dc0`). The fade is frame-based: half a second at 60 game frames per
+second. The alpha reaches the draw helper through XMM2, which is easy to miss in the decompilation.
 
 **The low-HP fill and background flash on opposite parities of a 30-frame counter.** On the
 even half-second the *background* switches to the low-HP sprite; on the odd half-second the
@@ -82,14 +81,20 @@ threshold is compared against the **raw stored HP** (the double at `+0x48`, disp
 about 33.33 displayed HP. The executable's fallback before data overrides is `0.25` (6.25 displayed
 HP).
 
-**Mana and max mana are truncated to integers** while HP keeps its decimals. Inconsistent, and
-visible in game.
+**Mana tooltip numbers are truncated to integers.** HP bar geometry still uses the stored
+fractional health; the visible HP number is converted to an integer after multiplying by 25,
+with a `1` fallback for a positive value that would otherwise display as zero.
 
-**Gold jitters.** One frame in three the displayed gold is off by up to ±3, and the jittered
-value is written back into player state, so anything reading that field sees the noise.
+**Gold counts toward the wallet value.** Every third UI tick, the displayed counter moves toward
+the wallet amount by `max(1, floor(abs(wallet - displayed) / 2))`, clamped to the target. The
+updated counter is stored in `InventoryGuiComponent.wallet_money_target`, not written into the
+wallet. The helpers at `0x0097eea0` and `0x0097ee80` are signed 64-bit maximum and minimum; they
+do not generate random jitter. Wallet values above `2147483647`, or a set `mHasReachedInf`, display
+the infinity symbol.
 
-**The jetpack readout always says `1`.** The percentage is computed as `(fuel * 100) / (fuel * 100)`.
-The bar graphic is right; only the number is wrong.
+**The jetpack tooltip uses the real fuel percentage.** It truncates `fuel * 100 / fly_time_max`
+to an integer. The max value is decoded by `0x00898180` and returned in XMM0; interpreting a
+decompiler variable reused across that call as the numerator creates a false self-division.
 
 **The fire-rate-wait indicator has a component flag.** `InventoryGuiComponent.mDisplayFireRateWaitBar`
 controls whether the HUD displays the `fire_rate_wait.png` icon and cast-delay label while the held
@@ -122,8 +127,9 @@ at `+0x220`/`+0x224`.
 with mouse clamping that produces a "does it fit on screen" flag — and when it doesn't fit, the
 draw count drops by one. That is the whole overflow mechanism; there is no scroll.
 
-A **dt-scaled lerp** smooths the hover position: `v += (target − v) * dt * k`. Get this wrong
-with a per-frame constant and the strip behaves differently at 144 fps than at 60.
+A **per-frame lerp** smooths the expanded strip's hover position:
+`v += (target − v) / 3` (`0x00b795f0`, constant `0x010535a0`). There is no delta-time factor
+in these two coordinate updates.
 
 ### Dead code: the multi-player health-bar stack — `0x00b7cbf0`
 
@@ -374,7 +380,7 @@ as the base game plus one record per mod is an inference from those two checks, 
 every modded run show mods enabled and hide streaks. None of these positions have been checked in
 game yet.
 
-The accumulator here is **frame-rate dependent, not dt-scaled** — unlike the HUD. If you
+The accumulator here is **frame-rate dependent, not dt-scaled**. If you
 reimplement it with a constant, the title animation runs at a different speed on a 144 Hz
 display.
 
@@ -400,18 +406,17 @@ from one component, reached from three different draw functions:
 | `+0x220` / `+0x224` | fire timer / max |
 
 Sibling components have their own getters: jetpack (`+0x110` fuel, `+0xa0` has-fuel flag), wand,
-wand state (`+0x84` reload, `+0x88`/`+0x8c` mana max/current, `+0x3a8` reload end frame), gold,
+wand state (`+0x84` reload, `+0x88`/`+0x8c` current/max mana, `+0x3a8` reload end frame), gold,
 orb count.
 
 **What to copy:** the stat-bar contract (value, max, signed ghost amount, ghost alpha, bar width and
 height, five sprites) is a reusable description of a Noita bar; the log-scaled health-bar width; the
-2 Hz square wave with opposite parities; the dt-scaled lerp; and the player tint driven from the
+2 Hz square wave with opposite parities; the per-frame hover lerp; and the player tint driven from the
 inventory-open animation.
 
 **What not to copy:** the per-frame hand-rolled `strlen` over
-sprite paths, the jetpack's `(f*100)/(f*100)`, the gold jitter written back into player state,
-and the frame-rate-dependent title animation. All four are real, three are bugs, and all four
-bite a reimplementation that copies the structure without reading the arithmetic. `0x00b7cbf0`
+sprite paths and the frame-rate-dependent title animation. The jetpack tooltip divides by the
+decoded fuel maximum, and the gold counter is deliberate convergence, not noise. `0x00b7cbf0`
 is a dead co-op health-bar drawer in the same address band as the live one.
 
 ## Not recovered

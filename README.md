@@ -17,6 +17,8 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
 |------|---------------|
 | [docs/how-the-api-works.md](docs/how-the-api-works.md) | The rules that apply to all 375 functions. **Read this first** — it changes how you write mod code. |
 | [docs/api-reference.md](docs/api-reference.md) | All 375 functions: enforced arity, per-argument coercion, substituted defaults, return arity, runtime messages, shared globals. |
+| [docs/mod-images.md](docs/mod-images.md) | Editable images: pixel-call implementation, clearing, signed packed colors, native memory cost and lifetime. |
+| [docs/entity-lifecycle.md](docs/entity-lifecycle.md) | What `EntityKill` really does, when an entity disappears, why children added to a dying entity become orphans, and how `CameraBoundComponent` kills, freezes and respawns entities. |
 | [docs/sprite-stains.md](docs/sprite-stains.md) | Entity requirements for visible sprite stains, how `sprite_id` selects the sprite, and where generated UV maps are stored and named. |
 | [docs/family-notes.md](docs/family-notes.md) | Behaviour that holds across a family — `Entity*`, `Component*`, `Gui*`, `Physics*`, `Mod*` and the rest. |
 | [docs/special-tags.md](docs/special-tags.md) | What each documented special or engine-recognized entity/component tag does, which tags the wiki list omits, and which claims remain unverified. |
@@ -27,6 +29,7 @@ It is aimed at people writing mods, and at anyone reimplementing the API.
 | [docs/gui-layout.md](docs/gui-layout.md) | The layout engine: the layout stack, the cursor algorithm, layers, scroll containers, auto-boxes and tooltips. |
 | [docs/gui-bugs.md](docs/gui-bugs.md) | The bugs and sharp edges, with evidence strength marked — wrong values, memory-safety holes, silent no-ops, leaks. |
 | [docs/screenshake.md](docs/screenshake.md) | **Reading the screen shake.** Nothing in the API reads it back. Where the three floats live, how `GameScreenshake` combines and decays, what one unit is worth in pixels, what the camera getters already hand you for free, and how to read the real values through the LuaJIT FFI. |
+| [docs/zoom.md](docs/zoom.md) | **Zoom.** There is none in the engine: the view is `VIRTUAL_RESOLUTION_X` world pixels wide. Which copies of that value are taken when the world is created and which are read every frame, the render-target rebuild, how pixels end up uneven, and the set of writes for changing the view size mid-run (derived, not yet game-tested). |
 | [docs/magic-numbers.md](docs/magic-numbers.md) | What each vanilla `magic_numbers.xml` setting changes in the game, its shipped default and engine type, and which settings vanilla ignores. |
 
 ### How the Lua actually runs, and where files come from
@@ -38,6 +41,7 @@ decides which copy of a file your mod gets.
 | page | what is in it |
 |------|---------------|
 | [docs/lua-execution.md](docs/lua-execution.md) | **How a line of your Lua gets run.** One `lua_State` per mod (and it is LuaJIT, not stock 5.1), the six libraries and five removed globals, the game's own injected `dofile`/`dofile_once` source, load order, the globals-table callback dispatch, the nine modding APIs that are deleted after init, error dedup, and why C++ can never resume a Lua coroutine. |
+| [docs/native-crashes.md](docs/native-crashes.md) | Where the Windows developer build writes crash dumps, how to find the faulting instruction, and what the dump can tell you about a Lua-triggered engine crash. |
 | [docs/sprite-xml.md](docs/sprite-xml.md) | **Sprite XML files** - every attribute of `<Sprite>`, `<RectAnimation>`, `<Event>`, `<ChildAnimations>` and `<Hotspot>`, with the real defaults (animations loop by default; `frames_per_row` defaults to 9999). |
 | [docs/materials-xml.md](docs/materials-xml.md) | **Material XML** - all `<CellData>` attributes with the type the game really parses and its default (`lifetime` is an int, the gas speeds are bytes, `fire_hp="-1"` is legal), plus the `<Reaction>` attribute list. |
 | [docs/fonts.md](docs/fonts.md) | **Font XML files** - `xml` vs `bin` by extension, the four metric elements, root colour attributes, and how `Char` differs from `QuadChar`. |

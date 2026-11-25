@@ -175,7 +175,7 @@ this implementation have not yet been runtime-tested.
 
 This is a composability path for Lua code, not access to the game's native widget tree. For
 recreation, supported tunables can move the stat bars, quickbar, and expanded inventory out of the
-way; `UIIconComponent.display_in_hud` can suppress the dynamic status/perk row. The renderer then
+way, including the compact dynamic status/perk column. The renderer then
 draws replacement content through the GUI API. It still cannot read native widget rectangles,
 vanilla tooltip text, or the selected wand slot, and moving a panel does not replace its native
 input behavior. See [the screen-by-screen limits](ui-screens.md),
@@ -189,14 +189,19 @@ For example, a mod can move the HUD cluster off-screen through its existing magi
   UI_BARS2_OFFSET_X="10000"
   UI_FULL_INVENTORY_OFFSET_X="10000"
   UI_QUICKBAR_OFFSET_Y="10000"
+  UI_MAX_PERKS_VISIBLE="2147483647"
 />
 ```
 
 Register that XML during the mod's normal initialization with `ModMagicNumbersFileAdd`. These are
 group offsets, not a blanket hide flag; the exact result depends on which screen is open and should
-be checked in-game. For the dynamic icon row, set `display_in_hud` false on the relevant
-`UIIconComponent`s while the replacement is active, then restore their saved values when handing
-control back.
+be checked in-game. The right-column origin also controls the status, satiation and fire
+indicators. The large positive perk limit keeps the separately anchored expanded strip from
+appearing when inventory is open: that path requires the distinct-perk count to exceed the limit
+(`0x00b795f0`). Compact rendering still iterates only the actual perk count. This combination is
+statically supported; the complete hiding recipe has not been checked in-game. The traced native
+icon consumers do not test `display_in_hud`, so that field alone is not an established hiding
+mechanism. See [the icon consumer details](ui-data-driven.md#hud-icons-uiiconcomponent).
 
 ## What is closed, and what people do instead
 

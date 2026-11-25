@@ -140,18 +140,18 @@ unless a mod's magic-numbers file sets them. The rest of the file is audio, spaw
 Each of these is read straight off the decompilation of the function that computes it, which is
 named at the top of its bullet. Per-screen detail is in [ui-screens.md](ui-screens.md).
 
-- **The jetpack readout always says `1`.** The percentage is computed as
-  `(fuel * 100) / (fuel * 100)`. The bar graphic is right; only the number is wrong.
-- **Gold jitters.** One frame in three the displayed gold is off by up to ±3, and the
-  jittered value is written back into player state — so anything reading that field sees
-  the noisy value.
-- **The HP number's font size is logarithmic**, capped at 80 above 1000 max HP (40 at 100 HP).
-  A fixed size looks wrong the moment max HP changes.
-- **Mana values are truncated to integers** while HP keeps its decimals. Inconsistent, and
-  visible in game.
+- **The jetpack tooltip truncates its percentage.** It uses `fuel * 100 / fly_time_max`;
+  the decoded maximum arrives in XMM0, which the decompilation obscures.
+- **Gold animates toward the wallet amount.** The counter halves the remaining distance every
+  third UI tick, with a minimum step of one. It updates `InventoryGuiComponent.wallet_money_target`;
+  it does not add random noise or mutate the wallet. See [the exact rule](ui-screens.md#stat-bars--0x00b750b0).
+- **The health bar's width is logarithmic**, capped at 80 above 1000 max HP (40 at 100 HP).
+  This is the bar geometry, not the HP text's font size.
+- **Mana tooltip values are truncated to integers.** HP geometry retains fractional health;
+  its number uses the separate stored-HP-to-display conversion.
 - **Sprite paths are rebuilt and hand-length-scanned every frame, per bar, per player.** A
   reimplementation that interns them is strictly faster and behaves the same.
-- **The low-HP flash and the damage-ghost bar use opposite parities of the same 30-frame
+- **The low-HP fill and background use opposite parities of the same 30-frame
   counter**, so the fill and its background alternate against each other, not together.
 - **The fold arrow on options section headings was not recovered.** `button_fold_*.png` is
   per-mod only; the general headings use some other unnamed asset.

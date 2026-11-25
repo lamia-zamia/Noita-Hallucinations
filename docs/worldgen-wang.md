@@ -208,6 +208,43 @@ path, "same size and resolution as wang_template_file") and `static_tile_bg_mask
 (default `0.5`) drive the `sprite_static_tile_bg.frag` shader, which decides which background
 pixels show through. `data/biome_impl/static_tile/` holds the shipped static-tile biomes.
 
+## Tile choice ignores tile content
+
+The herringbone generator chooses tiles by their edge-colour constraints alone (`0x00866970`):
+it counts the tiles that fit and draws one with the wang RNG. It never reads a tile's pixels. So
+editing pixels *inside* tiles, while leaving the header pixels (the last three pixels of row 0)
+and the tile grid alone, gives the same tile arrangement for the same seed.
+
+That RNG is a Park-Miller stream (`0x00866120`). The game creates it lazily from the world seed
+and does **not** reseed it per biome: the biome loader passes seed `0.0`, which means "continue"
+(`0x00867de0` -> `0x00867500`). Each biome's layout therefore depends on how many draws every
+earlier wang biome made. Those biomes are loaded in `_biomes_all.xml` order.
+
+## `coalmine.png` is hard-coded by path
+
+The start-path pass (`0x008771a0`) runs for each biome region and makes sure a route exists
+through it. It compares the biome's `wang_template_file` with the literal string
+`data/wang_tiles/coalmine.png`, and it takes different branches on the result:
+
+| | template path is exactly `data/wang_tiles/coalmine.png` | any other path |
+|---|---|---|
+| start area | fixed: map column `0x8e`, width 12 | from `BIOME_PATH_FIND_WORLD_POS_MIN_X`/`MAX_X` (159/223, divided by 10); a 7-row strip there is cleared to black |
+| `extra_layers/coalmine.png` | loaded (`0x0087a900`) and copied over the region map: `(0,0,66)` pixels are cleared to black, and other opaque non-black pixels are copied in | not loaded |
+| after the start path is found | `(0,66,0)` extra-layer pixels (6 023 px, a band across the top 51 rows) are cleared to black | nothing |
+| ramp pixels | `FEFEFE` in rows 0-14, columns `0x8c`-`0x9d` are cleared to black | kept |
+
+Black (`000000`) means "no wang tile": the pixel gets procedural terrain or the neighbour vote
+instead (see [Filling holes](#filling-holes)).
+
+So a biome that uses a copy of `coalmine.png` under another name, even a pixel-identical copy,
+gets a different Mines. The hand-authored top band is gone, the entrance moves, and the route
+search starts from somewhere else. The vanilla readme in `data/wang_tiles/extra_layers/` says the
+same thing ("only loads this for coalmine").
+
+A mod that wants a re-skinned Mines therefore has to keep
+`wang_template_file="data/wang_tiles/coalmine.png"`. It must change the image's content rather
+than its path.
+
 ## Extra layers and debug output
 
 `data/wang_tiles/extra_layers/` holds `coalmine.png` (and a `readme.txt`), loaded on top of the

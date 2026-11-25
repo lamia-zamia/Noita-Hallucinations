@@ -126,13 +126,12 @@ resolve a read:
 | `+0x0c` | **open**: `(out_stream, path)`, returns null if this device does not have it |
 | `+0x1c` | **exists**: does this device have this file |
 
-Two further slots exist but are used only by the path-resolution / directory-walk function
-(`0x00dbcd90`), which the read path never reaches:
+Directory enumeration (`0x00dbcd90`) uses two other slots:
 
 | slot | meaning |
 |---|---|
-| `+0x18` | resolve to the real absolute path on disk |
-| `+0x2c` | does this path belong to this device |
+| `+0x18` | enumerate files under the requested directory |
+| `+0x2c` | does this device handle directory enumeration for this root and path |
 
 **First match wins.** Both the exists test (`0x00dbcf70`) and the open (`0x00dbc940`) walk
 the vector from the front and stop at the first device that answers:
@@ -311,8 +310,7 @@ the only file-reading entry point, and it is gated (`0x0082cf80`). A read succee
 2. **The path starts with `data/` or `mods/`** (`0x011531ec`). Nothing else is reachable
    from Lua - not `??S00/`, not `..`, not an absolute path.
 
-3. **After the first path component is stripped, the name is not one of three files**
-   (`0x01152760`):
+3. **The filename is outside the three-name blacklist** (`0x01152760`):
 
    | blacklisted | why it exists |
    |---|---|
@@ -338,22 +336,21 @@ algorithm not settling" warning, which makes it *look* like the last check overw
 first. It does not - the prefix result is deliberately copied aside before the blacklist call.
 If you are reimplementing, do not write the lossy overwrite; write the AND.)
 
-### The first component is stripped, not the mod directory
+### The blacklist checks the filename
 
-The gate calls a helper (`0x00de2760`) that finds the first `/` or `\` in the path - the two
-marker strings are the single characters `"/"` and `"\"` - and returns everything after it:
+The gate calls `0x00de2760` to extract the filename. It searches backward for `/` and `\`.
+With a consistent separator the filename is everything after the last separator:
 
 ```
-"data/scripts/init.lua"        ->  "scripts/init.lua"
-"mods/mine/data/x.xml"         ->  "mine/data/x.xml"
-"mods\\mine\\data\\x.xml"      ->  "mine\\data\\x.xml"
+"data/scripts/init.lua"        ->  "init.lua"
+"mods/mine/data/x.xml"         ->  "x.xml"
+"mods\\mine\\data\\x.xml"      ->  "x.xml"
 ```
 
-A path with **no** separator is returned unchanged, not emptied. The two marker strings are
-single characters, `/` and `\`, but they are built at run time so their identity is an
-inference from the surrounding code rather than something the file image shows.
+A path with no separator is returned as given. A path containing both separator types uses the
+earlier of their last occurrences.
 
-This helper only serves the blacklist test. The documented equivalence of
+The documented equivalence of
 `mods/mod/data/file.xml` and `data/file.xml` comes from the redirect in
 [the file map](#the-file-map), and it holds only for the mod that won that `data/` path.
 
@@ -473,12 +470,14 @@ is real: `data/enemies_gfx/player.png` by four mods, and `data/scripts/magic/kan
 
 ## Directory enumeration
 
-- `0x00dbcd90` - resolve a path by asking each device whether the path is inside it (device
-  slot `+0x2c`), then asking that device for the real path (slot `+0x18`). Falls back to
-  plain expansion when nothing matches.
-- `0x00dbceb0` - resolve against the mount table alone. There is no device parameter and no
-  device vtable call in it: it expands the `??XXX` prefix and then makes the result absolute.
-  In other words it is the *fallback half* of `0x00dbcd90`, promoted to its own entry point.
+- `0x00dbcd90` asks each device whether it handles the directory (`+0x2c`) and calls the first
+  matching device's enumerator (`+0x18`). With no matching device it expands the path through
+  the mount table and scans the physical directory. The mod cache's predicate always returns
+  false. The archive device accepts ordinary game-root paths and returns immediate children from
+  its index. The [Progress enemy grid](ui-data-driven.md#the-progress-menus-enemy-grid-is-filesystem-driven)
+  then adds listings from enabled mods separately.
+- `0x00dbceb0` expands the `??XXX` prefix and makes the result absolute. It consults the mount
+  table directly.
 
 Neither is reachable from Lua. Mod *discovery* is not a directory walk of `mods/` at all: it
 starts from the enabled-mod list and probes each candidate's `mod.xml` through the device
@@ -691,8 +690,3 @@ The minimum that reproduces observed behaviour:
   `root = 0` resolves to. It is set only by the two command-line flags and lives in BSS, so
   its load-time default is decided by start-up code outside the paths read here. The flag
   names say AppData; a Steam install is also consistent with the Steam userdata directory.
-- The device vtables for `ModDiskFileDeviceCaching` and `WizardPakFileDevice`. Their RTTI type
-  descriptors resolve but their complete-object-locators do not, so their slot layouts are
-  inferred from the four slots the generic code calls rather than read directly. (The mod
-  device's vtable has since been recovered at `0x01004df4` and matches the slot numbering
-  above.)

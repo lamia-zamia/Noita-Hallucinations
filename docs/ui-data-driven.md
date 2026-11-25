@@ -14,7 +14,7 @@ listings at runtime, and a mod can write all of them.
 | **Item / wand tooltips** | **yes** | `ItemComponent.ui_sprite`, `ui_description`, `ui_name` |
 | **HUD status & perk icons** | **yes** | `UIIconComponent` on a child entity |
 | **Grid containers** (arbitrary grid anywhere on screen) | **unverified** | `InventoryComponent` has UI-related fields, but its rendering path is not established — see below |
-| **Progress-menu enemy grid** | **yes** | files in `data/ui_gfx/animal_icons/` |
+| **Progress-menu enemy grid** | **add and reorder** | icon files and `_list.txt` in `data/ui_gfx/animal_icons/` |
 | **Perk "spent" state on the effects panel** | **yes** | sprite path + `$perk_*` strings |
 | **Wand stats card values** | **yes** | the wand's own components |
 | **Wand stats card *rows*** | no | 27 hardcoded label+icon triples |
@@ -69,8 +69,19 @@ Six fields, all writable at runtime with `ComponentSetValue2` / `EntityAddCompon
 icon_sprite_file   name   description   display_in_hud   display_above_head   is_perk
 ```
 
-**Controllable per icon:** the picture, the name, the description, and visibility on each of the two
-surfaces.
+**Consumed directly per icon:** the picture, the name and the description. Visibility fields are
+writable too, but the native HUD consumers have the caveat below.
+
+**HUD visibility caveat:** the native status visitor (`0x00b7c8f0`) and perk collector (`0x00b7cac0`)
+do not test `display_in_hud`; neither do their component-buffer lookup helpers. Do not rely on
+setting this field false to suppress these HUD rows. Visibility on other surfaces is a separate
+consumer question. Moving the native right column avoids changing component state; see
+[the hiding recipe](ui-modding.md#share-one-gui-library-across-mods).
+
+Both visitors walk the player and its descendants in root-first depth-first order, retaining
+child order (`0x0056dda0`). Each entity lookup supplies one `UIIconComponent`. Status icons are
+handled individually; perks are grouped by exact `name`, keeping the first component's artwork
+and description and counting later matches for the duplicate label.
 
 **Not controllable:** size, scale, alpha, position, ordering. The HUD lays the row out as
 `cellWidth / count`, so a shorter row makes every icon bigger, and the hover scale and hover alpha
@@ -118,29 +129,64 @@ between a fixed stand-over anchor and following the mouse. It is a real user set
 
 ## The progress menu's enemy grid is filesystem-driven
 
-This is the cleanest "add UI content by dropping in a file" lever in the game. The progress screen
-**lists a VFS directory** to build its enemy grid:
+### Adding and revealing an enemy tile
 
-```
-data/ui_gfx/animal_icons/     <- enumerated at runtime
-data/ui_gfx/animal_icons/_list.txt   <- subtracted, so pre-listed entries are not "new"
-```
+Progress → Enemies builds its grid from two sources in `0x006dfe40`.
 
-It takes the difference between what is on disk and what `_list.txt` names, and what is left over
-becomes new cells. The label for each is resolved in three steps: try `$animal_<name>`; else look
-for `data/entities/animals/<name>.xml` and take its name field; else use the raw file name.
+1. `data/ui_gfx/animal_icons/_list.txt` seeds the grid in file order. Each line is converted to
+   `data/ui_gfx/animal_icons/<id>.png`. A list entry can create a tile even if its image is missing.
+2. The game lists the base icon directory and the enabled mods' icon directories. It sorts those
+   paths, skips `_list.txt` itself, and appends paths absent from the grid so far. The comparison
+   uses the full path. The grid takes the filename without its last extension as the ID and
+   skips entries whose ID is empty or all whitespace. Use PNGs for usable icons.
 
-So a mod can add a progress cell by shipping:
+For example, ship `mods/mymod/data/ui_gfx/animal_icons/my_enemy.png` for an entity loaded from
+`mods/mymod/files/creatures/my_enemy.xml`. The ID `my_enemy` comes from the filename in both cases.
+Add the bare ID to `_list.txt` only if you want to place it at a specific position. The entity's
+directory, `name` attribute and tags play no role in creating a tile. The revealed tooltip tries
+`$animal_my_enemy` in the translations, then the `name` from `data/entities/animals/my_enemy.xml`
+if that file exists. An entity loaded from a mod-specific directory can use the translation key
+to supply the tooltip name.
 
-```
-mods/mymod/data/ui_gfx/animal_icons/my_enemy.png
-mods/mymod/data/entities/animals/my_enemy.xml
-```
+In normal play the tile shows `???` until the game has recorded at least one player kill under
+that ID. If the entity's `GameStatsComponent` sets `dont_do_logplayerkill="1"`, call
+`StatsLogPlayerKill(entity_id)` from your own death logic to record the kill. The global run flag
+`no_progress_flags_animal` suppresses enemy kill-counter updates and automatic new markers while
+set. `GameAddFlagRun("new_kill_my_enemy")` sets the new marker alone.
 
-and marking it discovered with `GameAddFlagRun("new_kill_my_enemy")`. Vanilla has 185 of
-these icons. **This is the mechanism to reach for if you want to extend a vanilla screen with real
-new content** — the one place where the extension point is a directory listing rather than a fixed
-table.
+The draw loop skips `turret_left`. The `turret_right` tooltip adds the left turret's counts once
+the right tile is revealed.
+
+### Removing a vanilla enemy tile
+
+Remove both sources for the ID. For example, remove `boss_dragon` from the effective `_list.txt`
+and remove `boss_dragon.png` from every icon directory the game enumerates. If the icon remains,
+the tile reappears among the appended entries.
+
+Ordinary Lua and asset overrides can replace the list or the image. The base directory listing
+still contains the vanilla PNG because it comes from the mounted `data/data.wak`. For a local
+loose-data copy, run `noita.exe -wizard_unpak` or `noita_dev.exe -wizard_unpak` from the copied
+game directory. Then move `data/data.wak` aside and remove the line and the loose PNG. With a
+packed install, the archive's icon directory must omit the PNG. An enabled mod can add the tile
+back by providing either source.
+
+### Hiding or reusing a tile in a mod
+
+To hide the revealed portrait, ship a valid transparent PNG at the same mod-relative path, for
+example `mods/mymod/data/ui_gfx/animal_icons/boss_dragon.png`. The native grid still draws the
+frame and keeps the slot, tooltip and counts. An undiscovered entry uses the shared
+`data/ui_gfx/progress_menu/icon_unknown.png`. A corrupt or zero-byte PNG cannot remove the slot
+either. The enemy list is already built when the renderer tries to load the image, and the grid
+advances using a fixed column count and cell spacing. `ModImageMakeEditable` and
+`ModImageSetPixel` affect image content through the same separation from the directory listing.
+
+If a mod replaces a vanilla creature, it can reuse the vanilla tile. For a replacement for
+`boss_dragon`, load the new creature from an XML named `boss_dragon.xml`, override
+`data/ui_gfx/animal_icons/boss_dragon.png`, and update the `animal_boss_dragon` translation.
+The replacement inherits kill history under that ID. Use a distinct ID when the old and new
+creatures need separate stats.
+
+### New-entry markers
 
 To check whether a particular entry is marked new, use the matching run flag:
 
@@ -150,13 +196,11 @@ local perk_is_new = GameHasFlagRun("new_perk_picked_" .. perk_id)
 local enemy_is_new = GameHasFlagRun("new_kill_" .. enemy_id)
 ```
 
-The pause-menu Progress row checks these per-entry flags every time it is drawn: it shows
-`$menu_progress_new` with a count when one or more matching flags are set, and `$menu_progress`
-when none are set. The Progress screen also reads the flags for its per-entry markers. Neither path
-consumes them, so opening Progress does not dismiss the label. The markers stay until code clears
-them with `GameRemoveFlagRun` or the run's flag state is reset. There is no single Lua query for
-"anything new" across all categories; a mod must check the IDs it cares about. These flags say
-which entries are marked new, not whether the Progress screen is open.
+The pause-menu Progress row shows `$menu_progress_new` with a positive count and `$menu_progress`
+when the count is zero. It checks perk and action flags during the draw and caches the enemy count
+from a separate directory scan when its widget is created. The Progress screen also reads the
+flags for its per-entry markers. Opening Progress leaves those flags set. Clear them with
+`GameRemoveFlagRun`, or check the IDs you care about with `GameHasFlagRun`.
 
 The screen checks `PERK_PICKED_<id>` for discovery and the matching `new_perk_picked_<id>` run flag
 for the new marker, so `GameAddFlagRun` can mark an *existing* vanilla perk or spell as newly

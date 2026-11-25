@@ -231,8 +231,8 @@ The engine recognizes many keys that are not present in the vanilla XML, so a mo
 | `STREAMING_CHUNK_TARGET` | Sets the target amount of chunk-streaming work per update. The engine also uses two and three times this value as backlog thresholds, so raising it allows more streaming work before those thresholds are reached. | `12` | integer |
 | `VIRTUAL_RESOLUTION_OFFSET_X` | Added to transformed horizontal coordinates in the virtual-resolution mapping. | `-1` | float |
 | `VIRTUAL_RESOLUTION_OFFSET_Y` | Added to transformed vertical coordinates in the virtual-resolution mapping. | `-1` | float |
-| `VIRTUAL_RESOLUTION_X` | Logical virtual-canvas width used in coordinate transforms and grid/texture dimensions. | `427` | integer |
-| `VIRTUAL_RESOLUTION_Y` | Logical virtual-canvas height used in coordinate transforms and grid/texture dimensions. | `242` | integer |
+| `VIRTUAL_RESOLUTION_X` | How many world pixels wide the view is; the screen shows `window_width / VIRTUAL_RESOLUTION_X` screen pixels per world pixel. Copied into the world's buffers, camera and view scale when the world is created, so changing it afterwards only affects the per-frame readers ([zoom.md](zoom.md)). | `427` | integer |
+| `VIRTUAL_RESOLUTION_Y` | Height of the world's pixel buffers and camera rectangle, copied when the world is created ([zoom.md](zoom.md)). The visible height follows the window's aspect ratio. | `242` | integer |
 
 ## Engine settings accepted by the executable but absent from the local XML
 
